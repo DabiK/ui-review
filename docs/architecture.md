@@ -1,8 +1,8 @@
 # Architecture
 
-UI Review is a local-first Chrome MV3 extension. The same clean/hexagonal rules apply to the
-extension and to the future native bridge: dependencies point inward only, the domain knows
-nothing about its hosts, and every port has at least two real implementations.
+UI Review is a local-first Chrome MV3 extension with a companion native bridge. The same
+clean/hexagonal rules apply to both: dependencies point inward only, the domain knows nothing
+about its hosts, and every port has at least two real implementations.
 
 ```
 driving adapters            application                domain                 driven adapters
@@ -25,19 +25,31 @@ specifier that leaves `src/core`.
 | Path | Role | Depends on |
 |---|---|---|
 | `src/core/model/` | Canonical vocabulary and invariants | nothing |
+| `src/core/bridge/` | Versioned bridge protocol + base64 codec, shared with the native bridge | nothing |
 | `src/core/ports/` | Driven interfaces declared by the domain | `src/core/model` |
 | `src/core/usecases/` | Core use cases / read models | `model` + `ports` |
 | `src/core/index.ts` | Public barrel — the only entry point for the core | core internals |
 | `src/adapters/persistence/in-memory/` | Ephemeral repository (tests, previews) | `@core` |
 | `src/adapters/persistence/indexeddb/` | Durable repository (browser profile) | `@core` |
-| `src/adapters/runtime/` | Host facts: Chrome runtime, system clock, crypto ids + deterministic doubles | `@core` |
-| `src/adapters/chrome/` | Chrome integrations (side panel wiring, active tab, review transport, change channel) | `@core` + `@app` types |
+| `src/adapters/runtime/` | Host facts: Chrome runtime, system clock, crypto ids + deterministic doubles, in-process bridge | `@core` + bridge core |
+| `src/adapters/local-bridge/` | Shared mapping of bridge responses to typed port results | `@core` |
+| `src/adapters/chrome/` | Chrome integrations (side panel wiring, active tab, review transport, change channel, Native Messaging client) | `@core` + `@app` types |
 | `src/app/` | Composition root: adapters → use cases + application gateways | `@core` + adapters |
 | `src/sidepanel/` | Driving adapter: side-panel view (plain DOM) | `@app` + `@core` types |
 | `src/content/` | Driving adapter: page overlay (shadow DOM), DOM anchor capture | `@core` types + transport |
 | `src/background/` | MV3 service worker entry point | `@adapters/chrome` |
-| `scripts/dev.mjs` | Runs both build watchers (extension ESM + content-script IIFE) | Vite |
+| `src/bridge/core/` | Native bridge domain: request handler, artifact path builder, artifact store + OS path ports | `src/core/bridge` only |
+| `src/bridge/adapters/fs/` | Durable filesystem artifact store (containment + symlink guards) | bridge core |
+| `src/bridge/adapters/in-memory/` | Portable artifact store used by tests and the in-process adapter | bridge core |
+| `src/bridge/adapters/os/` | macOS / Windows / Linux application-data directories | bridge core |
+| `src/bridge/adapters/native-messaging/` | stdio framing + server loop (no HTTP, no socket) | `src/core/bridge` |
+| `src/bridge/main.ts` | Bridge composition root / executable entry point | bridge core + adapters |
+| `src/bridge/native-messaging-host/` | Host manifest template used by the dev installer | — |
+| `scripts/dev.mjs` | Runs all three build watchers (extension ESM, content-script IIFE, bridge ESM) | Vite |
+| `scripts/install-bridge-host.mjs` | Development install/remove of the Native Messaging host | Node |
+| `scripts/bridge-smoke.mjs` | Spawns the built bridge and round-trips a real frame exchange | Node |
 | `vite.content.config.ts` | Second build pass emitting `dist/content-script.js` as an IIFE | Vite |
+| `vite.bridge.config.ts` | Third build pass emitting the Node bridge executable `dist/bridge/main.js` | Vite |
 | `public/manifest.json` | MV3 manifest, copied to `dist/` at build time | — |
 | `sidepanel.html` | Side-panel document, bundled by Vite | — |
 
@@ -80,6 +92,23 @@ Vocabulary (`src/core/index.ts`):
   `renameSession`, `sortSessionsByRecency`, `findCurrentSessionForPage`) — pure functions the
   use cases rely on; callers never assemble a transition themselves.
 
+Bridge protocol (`src/core/bridge/`, shared by both processes, pure):
+
+- `BRIDGE_PROTOCOL_VERSION`, `BRIDGE_HOST_NAME` and exactly three allowlisted operations:
+  `bridge.health`, `artifact.write`, `artifact.read`. Anything else is rejected before any
+  handler runs.
+- Request envelope: `{ protocolVersion, requestId, operation, origin, payload }`; response:
+  `{ protocolVersion, requestId, ok, result | error }` with typed error codes
+  (`protocol-mismatch`, `origin-not-allowed`, `invalid-artifact-name`, `artifact-too-large`,
+  `invalid-base64`, `path-not-allowed`, `artifact-not-found`, `io-error`, …).
+- Strict parsers (`parseBridgeEnvelope`, `parseBridgePayload`, `parseBridgeResponse`) validate
+  exact keys, protocol version, operation allowlist, origin shape, safe path segments
+  (conservative slugs, Windows device names refused) and canonical base64. Artifact content is
+  decoded once during validation and bounded by `BRIDGE_MAX_ARTIFACT_BYTES` (16 MiB, below
+  Chrome's 64 MiB extension→host limit).
+- `encodeBase64` / `decodeBase64` — dependency-free, canonical-only codec; anything that is
+  not canonical base64 is refused instead of silently repaired.
+
 Ports:
 
 - `ReviewSessionRepository` — `describe()`, `save()`, `findById()`, `list()`, `delete()`.
@@ -99,6 +128,14 @@ Ports:
   Implementations: `ChromeScreenshotCaptureAdapter` (`chrome.tabs.captureVisibleTab` plus a
   local `OffscreenCanvas` crop), `FakeScreenshotCaptureAdapter` (scriptable test double).
   The shared contract test runs against both, including the offscreen and unavailable paths.
+- `LocalBridgePort` — `checkHealth()`, `writeArtifact(input)`, `readArtifact(ref)`. Expected
+  failures are typed (`bridge-unavailable`, `bridge-rejected`, `invalid-response`,
+  `artifact-not-found`) with the bridge error code when one was returned.
+  Implementations: `ChromeNativeMessagingBridgeAdapter` (`chrome.runtime.sendNativeMessage`
+  over the versioned protocol; needs the `nativeMessaging` permission) and
+  `InMemoryLocalBridgeAdapter` (runs the real bridge handler and in-memory artifact store
+  in-process, so tests and previews exercise the exact protocol logic without spawning a
+  process). The shared contract test runs against both.
 
 Use cases:
 
@@ -136,6 +173,10 @@ Use cases:
   session id and its comments with a 1-based pin index and a reduced DOM anchor
   (fingerprint, ancestry, text, role, bounding box, viewport). No session active for the URL
   means `{ active: false, comments: [] }` and no injected overlay.
+- `checkLocalBridge({ bridge })`, `storeSessionArtifact({ bridge }, input)`,
+  `readSessionArtifact({ bridge }, ref)` — validate inputs before the wire (safe session ids
+  and names, allowlisted media type, non-empty and bounded content) and turn a throwing port
+  into a typed `bridge-unavailable` failure. Callers never build a bridge envelope.
 
 Every expected lifecycle failure is a typed result (`{ ok: false, reason }`) rather than a
 thrown error; `DomainValidationError` is reserved for invalid state assembled by developers
@@ -197,6 +238,48 @@ domain decision):
 - The `tabs` permission is required so `ChromeActivePageAdapter` can report the focused page
   URL and title and so the service worker can push overlay syncs to the matching tabs; the
   core and the UI still never call `chrome.*` directly.
+- The `nativeMessaging` permission lets the composition root's
+  `ChromeNativeMessagingBridgeAdapter` round-trip health and artifact requests through the
+  host manifest. The bridge use cases are exposed by the container for the export flow
+  (#6); no UI control calls them yet and no artifact is written until that flow runs.
+
+## Native bridge
+
+- `dist/bridge/main.js` is a Node ESM bundle built from `src/bridge/main.ts`; Chrome launches
+  it as a Native Messaging host (`stdio`), never through a server. No HTTP listener, socket or
+  port is ever created — `tests/architecture/bridge-boundaries.test.ts` rejects
+  `node:http`/`node:https`/`node:net`/`createServer`/`.listen(` anywhere in `src/bridge`, and
+  `console.log` is banned because stdout is the protocol pipe (diagnostics go to stderr).
+- Framing is the Native Messaging protocol: a 4-byte little-endian length prefix followed by
+  UTF-8 JSON. Chrome's size limits apply: extension→host messages may reach 64 MiB, but
+  host→extension messages are capped at 1 MiB. The bridge accepts artifacts up to 16 MiB
+  decoded; large artifacts are meant to be handed to the agent by local path (issue #6),
+  not read back through a 1 MiB response.
+- Trust chain: (1) the host manifest's `allowed_origins` restricts which extension may launch
+  the host; (2) the installer's launcher exports `UI_REVIEW_BRIDGE_ALLOWED_ORIGINS`, and the
+  host fails closed when it is unset; (3) the host compares Chrome's authoritative caller
+  origin (`argv[2]`) with the allowlist at startup; (4) the handler rejects an envelope whose
+  `origin` is not allowlisted; (5) the payload is validated before storage. A message that
+  fails envelope, origin or payload validation never touches the filesystem.
+- Storage lives behind `AppDataPathsPort` in the OS application-data directory (macOS
+  `~/Library/Application Support`, Windows `%APPDATA%`, Linux
+  `$XDG_DATA_HOME`/`~/.local/share`): `<app-data>/ui-review/sessions/<sessionId>/artifacts/<name>`
+  with a metadata sidecar in `metadata/`. `UI_REVIEW_BRIDGE_DATA_ROOT` overrides the durable
+  root for development and smoke tests.
+- Path safety: the pure path builder only emits validated slug segments; the filesystem store
+  resolves every path and verifies containment after symlink resolution, refusing symlinked
+  session folders or artifact files with `path-not-allowed`. A missing artifact returns
+  `artifact-not-found`; corrupted metadata returns `io-error` instead of a guessed media type.
+- Development installation: `npm run build`, then
+  `npm run bridge:install [-- --extension-id <id>]`. The installer copies the bundle into
+  `<app-data>/ui-review/bridge/` (on macOS Chrome cannot execute a launcher under a
+  TCC-protected folder such as `~/Documents`), writes the per-platform launcher and host
+  manifest, and computes the unpacked extension id from `dist/` when none is passed.
+  `npm run bridge:uninstall` removes the registration, the launcher and the installed bundle,
+  while leaving persisted sessions intact. `npm run bridge:smoke` spawns the built executable
+  and round-trips health, write and read frames.
+- Windows: the installer writes the manifest and prints the `reg add` command; packaged
+  installers and standalone binaries arrive in issue #10.
 
 ## Testing strategy
 
@@ -224,6 +307,13 @@ domain decision):
   covers the confirmed/inferred/unavailable capture outcomes, the screenshot-to-comment
   linkage, independent attachment deletion and the resilience paths.
 - UI tests run under happy-dom and assert accessible structure, not implementation details.
+- `tests/bridge/` covers the request handler, the path builder, both artifact stores (one
+  shared contract plus symlink-escape cases for the filesystem store), the OS app-data paths
+  (the same contract run against the macOS, Windows and Linux adapters) and the stdio framing
+  and server. `tests/bridge/executable.test.ts` builds the real executable with Vite, spawns
+  it and speaks the real Native Messaging framing, including the fail-closed startup paths.
+- `tests/architecture/bridge-boundaries.test.ts` guards the pure bridge core and the absence
+  of network listeners or stdout logging.
 - `tests/architecture/core-boundaries.test.ts` guards the dependency rule.
 - `tests/extension/manifest.test.ts` guards the MV3 manifest and its entry points, including
   the content-script declaration and the capture host permission.
@@ -239,6 +329,9 @@ domain decision):
 | `npm run lint` | ESLint (includes core boundary rules) |
 | `npm test` | Vitest unit + architecture tests |
 | `npm run verify` | lint → typecheck → test → build |
+| `npm run bridge:install` | Build the bridge, install the Native Messaging host (dev) |
+| `npm run bridge:uninstall` | Remove the host registration, launcher and installed bundle |
+| `npm run bridge:smoke` | Spawn the built bridge and round-trip health/write/read frames |
 
 ## Loading the unpacked extension
 

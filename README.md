@@ -33,11 +33,14 @@ npm run verify   # lint → typecheck → unit tests → build
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Rebuild both bundles (`dist/`) on change; reload the extension to apply |
-| `npm run build` | Production build into `dist/` (side panel + service worker + content script) |
+| `npm run dev` | Rebuild all bundles (`dist/`) on change; reload the extension to apply |
+| `npm run build` | Production build into `dist/` (side panel + service worker + content script + bridge) |
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run lint` | ESLint, includes the core boundary rules |
 | `npm test` | Unit and architecture tests |
+| `npm run bridge:install` | Install the local Native Messaging host for development |
+| `npm run bridge:uninstall` | Remove the host registration and installed bridge bundle |
+| `npm run bridge:smoke` | Spawn the built bridge and round-trip a real frame exchange |
 
 Load the unpacked extension: run `npm run build`, open `chrome://extensions`, enable
 Developer mode, click **Load unpacked** and select `dist/`. Clicking the toolbar icon opens
@@ -75,5 +78,34 @@ browser profile.
 The module map, public interfaces and the dependency rule are documented in
 [`docs/architecture.md`](docs/architecture.md). The agent workflow (one implementation agent
 per issue, a distinct review agent, evidence in PRs) is documented in [`AGENTS.md`](AGENTS.md).
+
+## Local bridge (Native Messaging)
+
+The companion bridge is a local executable Chrome launches through a Native Messaging host
+manifest. It speaks length-prefixed JSON on stdio — there is **no HTTP listener and no
+localhost port** — and stores session artifacts under the OS application-data directory
+(`~/Library/Application Support/ui-review` on macOS, `%APPDATA%\ui-review` on Windows,
+`$XDG_DATA_HOME/ui-review` or `~/.local/share/ui-review` on Linux).
+
+```sh
+npm run build
+npm run bridge:install        # dev: computes the unpacked extension id from dist/
+# reload the extension in chrome://extensions
+npm run bridge:smoke          # optional: exercises the built bridge over real framing
+npm run bridge:uninstall      # removes the registration; persisted sessions stay
+```
+
+The installer copies the bridge into `<app-data>/ui-review/bridge/` and writes the host
+manifest for Chrome. Pass `npm run bridge:install -- --extension-id <id>` when the extension
+id is already known. On Windows the installer prints the `reg add` command instead of
+editing the registry; packaged installers and standalone binaries arrive in issue #10.
+
+Security model: the host manifest only allows the registered extension, the launcher sets an
+origin allowlist and the bridge fails closed without it, Chrome's authoritative caller origin
+is compared at startup, and every message is schema-validated before the filesystem is
+touched. Artifact paths are built from conservative slugs; the filesystem store re-verifies
+containment after symlink resolution, so a session folder or file cannot escape its root.
+Writes are capped at 16 MiB decoded; Chrome caps host→extension messages at 1 MiB, so large
+artifacts are meant to be handed to the agent by local path (issue #6), not read back.
 
 Local-first Chrome UI review annotations with agent-ready handoff
