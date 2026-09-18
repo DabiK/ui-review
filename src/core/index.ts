@@ -37,6 +37,10 @@ export {
   type BridgeErrorResponse,
   type BridgeHealthPayload,
   type BridgeHealthResult,
+  type BridgeHandoffFilePayload,
+  type BridgeHandoffFileResult,
+  type BridgeHandoffMaterializePayload,
+  type BridgeHandoffMaterializeResult,
   type BridgeOperation,
   type BridgeParse,
   type BridgePayloadLimits,
@@ -45,6 +49,8 @@ export {
   type BridgeSuccessResponse,
   type ParsedBridgeEnvelope,
   type ValidatedBridgeArtifactWritePayload,
+  type ValidatedBridgeHandoffFile,
+  type ValidatedBridgeHandoffMaterializePayload,
 } from './bridge/protocol';
 
 export {
@@ -95,6 +101,36 @@ export {
 } from './model/redaction';
 
 export {
+  REVIEW_BRIEF_IMAGE_MEDIA_TYPES,
+  REVIEW_BRIEF_JSON_FILE,
+  REVIEW_BRIEF_MARKDOWN_FILE,
+  REVIEW_BRIEF_MAX_FILES,
+  REVIEW_BRIEF_MAX_FILE_BYTES,
+  REVIEW_BRIEF_MAX_TOTAL_BYTES,
+  REVIEW_BRIEF_SCHEMA_VERSION,
+  buildReviewBrief,
+  collectReviewBriefFileNames,
+  isReviewBriefImageMediaType,
+  parseReviewBriefDocument,
+  renderReviewBriefMarkdown,
+  type BuildReviewBriefOptions,
+  type ReviewBriefAttachment,
+  type ReviewBriefBundle,
+  type ReviewBriefComment,
+  type ReviewBriefDocument,
+  type ReviewBriefDomEvidence,
+  type ReviewBriefEvidence,
+  type ReviewBriefFile,
+  type ReviewBriefFrameworkEvidence,
+  type ReviewBriefImageMediaType,
+  type ReviewBriefParseResult,
+  type ReviewBriefPaths,
+  type ReviewBriefSession,
+  type ReviewBriefSourceMapEvidence,
+  type ReviewBriefVisualEvidence,
+} from './handoff/review-brief';
+
+export {
   COMMENT_CATEGORIES,
   COMMENT_PRIORITIES,
   DEFAULT_COMMENT_CATEGORY,
@@ -125,6 +161,7 @@ export {
 } from './model/review-session';
 
 export type { ActivePageInfo, ActivePagePort } from './ports/active-page';
+export type { ClipboardPort, ClipboardWriteResult } from './ports/clipboard';
 export type { ClockPort } from './ports/clock';
 export type { IdGeneratorPort } from './ports/id-generator';
 export type {
@@ -133,6 +170,11 @@ export type {
   LocalBridgeArtifactWriteInput,
   LocalBridgeFailure,
   LocalBridgeFailureReason,
+  LocalBridgeHandoff,
+  LocalBridgeHandoffFile,
+  LocalBridgeHandoffFileResult,
+  LocalBridgeHandoffInput,
+  LocalBridgeHandoffResult,
   LocalBridgeHealth,
   LocalBridgeHealthResult,
   LocalBridgePort,
@@ -197,9 +239,11 @@ export {
 
 export {
   checkLocalBridge,
+  materializeReviewHandoff,
   readSessionArtifact,
   storeSessionArtifact,
   type CheckLocalBridgeDeps,
+  type MaterializeReviewHandoffDeps,
   type ReadSessionArtifactDeps,
   type StoreSessionArtifactDeps,
 } from './usecases/local-bridge';
@@ -212,6 +256,15 @@ export {
   type OverlayComment,
   type OverlayState,
 } from './usecases/load-overlay-state';
+
+export {
+  exportReviewHandoff,
+  type ExportReviewHandoffDeps,
+  type ExportReviewHandoffFailure,
+  type ExportReviewHandoffFailureReason,
+  type ExportReviewHandoffInput,
+  type ExportReviewHandoffResult,
+} from './usecases/export-review-handoff';
 
 export {
   loadReviewPanel,

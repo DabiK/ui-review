@@ -5,10 +5,13 @@ import {
   isSafeArtifactName,
   isSafeArtifactSessionId,
 } from '../bridge/protocol';
+import { validateReviewBriefBundle } from '../handoff/review-brief';
 import type {
   LocalBridgeArtifactRef,
   LocalBridgeArtifactWriteInput,
   LocalBridgeFailure,
+  LocalBridgeHandoffInput,
+  LocalBridgeHandoffResult,
   LocalBridgeHealthResult,
   LocalBridgePort,
   LocalBridgeReadResult,
@@ -30,6 +33,10 @@ export interface StoreSessionArtifactDeps {
 }
 
 export interface ReadSessionArtifactDeps {
+  readonly bridge: LocalBridgePort;
+}
+
+export interface MaterializeReviewHandoffDeps {
   readonly bridge: LocalBridgePort;
 }
 
@@ -75,6 +82,26 @@ export async function readSessionArtifact(
   }
 }
 
+/**
+ * Materializes one agent handoff through the bridge. The brief and files pass the shared
+ * bundle validation before the wire, so a mismatched or oversized handoff is refused locally
+ * instead of being written and discovered later.
+ */
+export async function materializeReviewHandoff(
+  deps: MaterializeReviewHandoffDeps,
+  input: LocalBridgeHandoffInput,
+): Promise<LocalBridgeHandoffResult> {
+  const invalid = validateHandoffInput(input);
+  if (invalid !== null) {
+    return invalid;
+  }
+  try {
+    return await deps.bridge.materializeHandoff(input);
+  } catch {
+    return transportFailure();
+  }
+}
+
 function validateWriteInput(input: LocalBridgeArtifactWriteInput): LocalBridgeFailure | null {
   const invalidRef = validateRef(input);
   if (invalidRef !== null) {
@@ -106,6 +133,21 @@ function validateRef(input: LocalBridgeArtifactRef): LocalBridgeFailure | null {
     return failure('invalid-artifact-name', 'The artifact name cannot be used as a file name.');
   }
   return null;
+}
+
+function validateHandoffInput(input: LocalBridgeHandoffInput): LocalBridgeFailure | null {
+  const valid = validateReviewBriefBundle({
+    sessionId: input.sessionId,
+    brief: input.brief,
+    files: input.files,
+  });
+  if (valid.ok) {
+    return null;
+  }
+  return failure(
+    valid.code === 'unsupported-brief-version' ? 'invalid-brief' : valid.code,
+    valid.message,
+  );
 }
 
 function isAllowedMediaType(value: string): boolean {

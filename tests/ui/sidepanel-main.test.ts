@@ -131,6 +131,12 @@ const harness = vi.hoisted(() => {
       message: 'The bridge is not part of this UI test.',
       code: null,
     }),
+    exportReviewHandoff: async () => ({
+      ok: false,
+      reason: 'bridge-unavailable',
+      message: 'The bridge is not part of this UI test.',
+      code: null,
+    }),
     notifyPanelChanged: () => undefined,
     syncPageOverlay: (pageUrl) => {
       syncedPages.push(pageUrl);

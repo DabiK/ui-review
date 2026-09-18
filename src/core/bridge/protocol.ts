@@ -1,4 +1,14 @@
+import {
+  isReviewBriefImageMediaType,
+  parseReviewBriefDocument,
+  validateReviewBriefBundle,
+  type ReviewBriefDocument,
+  type ReviewBriefImageMediaType,
+} from '../handoff/review-brief';
 import { decodeBase64 as decodeBridgeBase64 } from './base64';
+import { isSafeArtifactName, isSafeArtifactSessionId } from './slug';
+
+export { isSafeArtifactName, isSafeArtifactSessionId } from './slug';
 
 /**
  * Versioned request/response protocol between the Chrome extension and the local native
@@ -17,7 +27,12 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 export const BRIDGE_HOST_NAME = 'com.dabik.ui_review_bridge';
 
 /** The only operations the bridge ever executes. Everything else is rejected unread. */
-export const BRIDGE_OPERATIONS = ['bridge.health', 'artifact.write', 'artifact.read'] as const;
+export const BRIDGE_OPERATIONS = [
+  'bridge.health',
+  'artifact.write',
+  'artifact.read',
+  'handoff.materialize',
+] as const;
 export type BridgeOperation = (typeof BRIDGE_OPERATIONS)[number];
 
 /** Artifact media types the bridge accepts to persist. */
@@ -39,6 +54,7 @@ export const BRIDGE_ERROR_CODES = [
   'unsupported-operation',
   'protocol-mismatch',
   'origin-not-allowed',
+  'unsupported-brief-version',
   'invalid-session-id',
   'invalid-artifact-name',
   'unsupported-media-type',
@@ -85,6 +101,36 @@ export interface BridgeArtifactReadPayload {
   readonly name: string;
 }
 
+/** One image materialized next to `review.md`; bytes are carried once, decoded at parse time. */
+export interface BridgeHandoffFilePayload {
+  readonly name: string;
+  readonly mediaType: ReviewBriefImageMediaType;
+  readonly contentBase64: string;
+}
+
+/**
+ * Materializes one agent handoff into the bridge's per-session temporary directory. The
+ * versioned brief is validated against the shared schema; the bridge renders `review.md`
+ * from it so the Markdown can reference the real absolute paths it is about to write.
+ */
+export interface BridgeHandoffMaterializePayload {
+  readonly sessionId: string;
+  readonly brief: ReviewBriefDocument;
+  readonly files: readonly BridgeHandoffFilePayload[];
+}
+
+export interface ValidatedBridgeHandoffFile {
+  readonly name: string;
+  readonly mediaType: ReviewBriefImageMediaType;
+  readonly content: Uint8Array;
+}
+
+export interface ValidatedBridgeHandoffMaterializePayload {
+  readonly sessionId: string;
+  readonly brief: ReviewBriefDocument;
+  readonly files: readonly ValidatedBridgeHandoffFile[];
+}
+
 export interface BridgeHealthResult {
   readonly kind: 'bridge.health';
   readonly status: 'ok';
@@ -111,10 +157,28 @@ export interface BridgeArtifactReadResult {
   readonly contentBase64: string;
 }
 
+export interface BridgeHandoffFileResult {
+  readonly name: string;
+  readonly path: string;
+  readonly byteLength: number;
+}
+
+export interface BridgeHandoffMaterializeResult {
+  readonly kind: 'handoff.materialize';
+  readonly sessionId: string;
+  readonly directory: string;
+  readonly markdownPath: string;
+  readonly jsonPath: string;
+  readonly files: readonly BridgeHandoffFileResult[];
+  /** Exact Markdown written to `review.md`, ready to be copied to the clipboard. */
+  readonly markdown: string;
+}
+
 export type BridgeResult =
   | BridgeHealthResult
   | BridgeArtifactWriteResult
-  | BridgeArtifactReadResult;
+  | BridgeArtifactReadResult
+  | BridgeHandoffMaterializeResult;
 
 export interface BridgeSuccessResponse {
   readonly protocolVersion: number;
@@ -144,6 +208,8 @@ export interface ParsedBridgeEnvelope {
 const ENVELOPE_KEYS = ['protocolVersion', 'requestId', 'operation', 'origin', 'payload'] as const;
 const WRITE_PAYLOAD_KEYS = ['sessionId', 'name', 'mediaType', 'contentBase64'] as const;
 const READ_PAYLOAD_KEYS = ['sessionId', 'name'] as const;
+const HANDOFF_PAYLOAD_KEYS = ['sessionId', 'brief', 'files'] as const;
+const HANDOFF_FILE_KEYS = ['name', 'mediaType', 'contentBase64'] as const;
 const RESPONSE_KEYS = ['protocolVersion', 'requestId', 'ok', 'result', 'error'] as const;
 const ERROR_KEYS = ['code', 'message'] as const;
 const HEALTH_RESULT_KEYS = ['kind', 'status', 'bridgeVersion', 'platform', 'artifactRoot'] as const;
@@ -157,12 +223,19 @@ const READ_RESULT_KEYS = [
   'mediaType',
   'contentBase64',
 ] as const;
+const HANDOFF_RESULT_KEYS = [
+  'kind',
+  'sessionId',
+  'directory',
+  'markdownPath',
+  'jsonPath',
+  'files',
+  'markdown',
+] as const;
+const HANDOFF_FILE_RESULT_KEYS = ['name', 'path', 'byteLength'] as const;
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 const ORIGIN_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/[^\s]+$/i;
-const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9_-])?$/;
-const ARTIFACT_NAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,125}[A-Za-z0-9_-])?$/;
-const WINDOWS_RESERVED_NAME_PATTERN = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
 export function isBridgeOperation(value: unknown): value is BridgeOperation {
   return typeof value === 'string' && (BRIDGE_OPERATIONS as readonly string[]).includes(value);
@@ -177,19 +250,6 @@ export function isBridgeArtifactMediaType(value: unknown): value is BridgeArtifa
 
 export function isBridgeErrorCode(value: unknown): value is BridgeErrorCode {
   return typeof value === 'string' && (BRIDGE_ERROR_CODES as readonly string[]).includes(value);
-}
-
-/**
- * Session ids become path segments, so they are restricted to a conservative slug: no
- * separators, no leading dot, no trailing dot and no Windows reserved device name.
- */
-export function isSafeArtifactSessionId(value: string): boolean {
-  return SESSION_ID_PATTERN.test(value) && !WINDOWS_RESERVED_NAME_PATTERN.test(value);
-}
-
-/** Artifact names are file names: same slug rules as session ids, with a longer budget. */
-export function isSafeArtifactName(value: string): boolean {
-  return ARTIFACT_NAME_PATTERN.test(value) && !WINDOWS_RESERVED_NAME_PATTERN.test(value);
 }
 
 /** Best-effort media type for a stored artifact, used when metadata is unavailable. */
@@ -298,15 +358,30 @@ export function parseBridgePayload(
   options?: BridgePayloadLimits,
 ): BridgeParse<BridgeArtifactReadPayload>;
 export function parseBridgePayload(
-  operation: BridgeOperation,
+  operation: 'handoff.materialize',
   value: unknown,
   options?: BridgePayloadLimits,
-): BridgeParse<BridgeHealthPayload | ValidatedBridgeArtifactWritePayload | BridgeArtifactReadPayload>;
+): BridgeParse<ValidatedBridgeHandoffMaterializePayload>;
 export function parseBridgePayload(
   operation: BridgeOperation,
   value: unknown,
   options?: BridgePayloadLimits,
-): BridgeParse<BridgeHealthPayload | ValidatedBridgeArtifactWritePayload | BridgeArtifactReadPayload> {
+): BridgeParse<
+  | BridgeHealthPayload
+  | ValidatedBridgeArtifactWritePayload
+  | BridgeArtifactReadPayload
+  | ValidatedBridgeHandoffMaterializePayload
+>;
+export function parseBridgePayload(
+  operation: BridgeOperation,
+  value: unknown,
+  options?: BridgePayloadLimits,
+): BridgeParse<
+  | BridgeHealthPayload
+  | ValidatedBridgeArtifactWritePayload
+  | BridgeArtifactReadPayload
+  | ValidatedBridgeHandoffMaterializePayload
+> {
   switch (operation) {
     case 'bridge.health':
       return parseHealthPayload(value);
@@ -314,6 +389,8 @@ export function parseBridgePayload(
       return parseArtifactWritePayload(value, options);
     case 'artifact.read':
       return parseArtifactReadPayload(value);
+    case 'handoff.materialize':
+      return parseHandoffMaterializePayload(value, options);
   }
 }
 
@@ -374,6 +451,8 @@ function parseBridgeResult(result: Record<string, unknown>): BridgeParse<BridgeR
       return parseArtifactWriteResult(result);
     case 'artifact.read':
       return parseArtifactReadResult(result);
+    case 'handoff.materialize':
+      return parseHandoffMaterializeResult(result);
     default:
       return fail('The bridge result kind is not allowlisted.');
   }
@@ -456,6 +535,61 @@ function parseArtifactReadResult(
     byteLength,
     mediaType,
     contentBase64,
+  });
+}
+
+function parseHandoffMaterializeResult(
+  result: Record<string, unknown>,
+): BridgeParse<BridgeHandoffMaterializeResult> {
+  if (!hasExactKeys(result, HANDOFF_RESULT_KEYS)) {
+    return fail('The bridge handoff result has unexpected fields.');
+  }
+  const sessionId = result['sessionId'];
+  const directory = result['directory'];
+  const markdownPath = result['markdownPath'];
+  const jsonPath = result['jsonPath'];
+  const markdown = result['markdown'];
+  const filesValue = result['files'];
+  if (
+    typeof sessionId !== 'string' ||
+    !isNonBlankString(directory) ||
+    !isNonBlankString(markdownPath) ||
+    !isNonBlankString(jsonPath) ||
+    !isNonBlankString(markdown) ||
+    !Array.isArray(filesValue)
+  ) {
+    return fail('The bridge handoff result is incomplete.');
+  }
+
+  const files: BridgeHandoffFileResult[] = [];
+  for (const entry of filesValue) {
+    if (!isRecord(entry) || !hasExactKeys(entry, HANDOFF_FILE_RESULT_KEYS)) {
+      return fail('A bridge handoff file result is malformed.');
+    }
+    const name = entry['name'];
+    const path = entry['path'];
+    const byteLength = entry['byteLength'];
+    if (
+      typeof name !== 'string' ||
+      !isSafeArtifactName(name) ||
+      !isNonBlankString(path) ||
+      typeof byteLength !== 'number' ||
+      !Number.isInteger(byteLength) ||
+      byteLength < 0
+    ) {
+      return fail('A bridge handoff file result is incomplete.');
+    }
+    files.push({ name, path, byteLength });
+  }
+
+  return ok({
+    kind: 'handoff.materialize',
+    sessionId,
+    directory,
+    markdownPath,
+    jsonPath,
+    files,
+    markdown,
   });
 }
 
@@ -552,6 +686,83 @@ function parseArtifactReadPayload(value: unknown): BridgeParse<BridgeArtifactRea
   }
 
   return ok({ sessionId, name });
+}
+
+/**
+ * Validates a handoff materialization request in full: safe session and file names, a
+ * versioned brief matching the shared schema, canonical image bytes within their limits,
+ * and a one-to-one match between the files the brief references and the files provided.
+ * Nothing is written when any of these checks fails.
+ */
+function parseHandoffMaterializePayload(
+  value: unknown,
+  options?: BridgePayloadLimits,
+): BridgeParse<ValidatedBridgeHandoffMaterializePayload> {
+  if (!isRecord(value)) {
+    return fail('The handoff payload must be an object.');
+  }
+  if (!hasExactKeys(value, HANDOFF_PAYLOAD_KEYS)) {
+    return fail('The handoff payload has unknown or missing fields.');
+  }
+
+  const sessionId = value['sessionId'];
+  if (typeof sessionId !== 'string' || !isSafeArtifactSessionId(sessionId)) {
+    return fail('The session id is not a safe artifact path segment.', 'invalid-session-id');
+  }
+
+  const brief = parseReviewBriefDocument(value['brief']);
+  if (!brief.ok) {
+    return fail(
+      brief.message,
+      brief.code === 'unsupported-brief-version' ? 'unsupported-brief-version' : 'invalid-request',
+    );
+  }
+  if (brief.value.session.id !== sessionId) {
+    return fail('The handoff brief does not belong to the requested session.');
+  }
+
+  const filesValue = value['files'];
+  if (!Array.isArray(filesValue)) {
+    return fail('The handoff files must be an array.');
+  }
+
+  const files: ValidatedBridgeHandoffFile[] = [];
+  for (const entry of filesValue) {
+    if (!isRecord(entry) || !hasExactKeys(entry, HANDOFF_FILE_KEYS)) {
+      return fail('A handoff file has unknown or missing fields.');
+    }
+    const name = entry['name'];
+    if (typeof name !== 'string') {
+      return fail('A handoff file name must be a string.', 'invalid-artifact-name');
+    }
+    const mediaType = entry['mediaType'];
+    if (!isReviewBriefImageMediaType(mediaType)) {
+      return fail('A handoff file media type is not allowlisted.', 'unsupported-media-type');
+    }
+    const contentBase64 = entry['contentBase64'];
+    if (typeof contentBase64 !== 'string' || contentBase64.length === 0) {
+      return fail('A handoff file has no content.', 'invalid-base64');
+    }
+    const decoded = decodeContent(contentBase64);
+    if (!decoded.ok) {
+      return decoded;
+    }
+    files.push({ name, mediaType, content: decoded.value });
+  }
+
+  const valid = validateReviewBriefBundle({
+    sessionId,
+    brief: brief.value,
+    files,
+    ...(options?.maxArtifactBytes === undefined
+      ? {}
+      : { maxFileBytes: options.maxArtifactBytes }),
+  });
+  if (!valid.ok) {
+    return fail(valid.message, valid.code === 'invalid-brief' ? 'invalid-request' : valid.code);
+  }
+
+  return ok({ sessionId, brief: brief.value, files });
 }
 
 function decodeContent(contentBase64: string): BridgeParse<Uint8Array> {

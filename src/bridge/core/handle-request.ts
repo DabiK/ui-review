@@ -8,7 +8,9 @@ import {
   type BridgeEnvelope,
   type BridgeResponse,
 } from '../../core/bridge/protocol';
+import { renderReviewBriefMarkdown } from '../../core/handoff/review-brief';
 import type { ArtifactStorePort } from './ports/artifact-store';
+import type { HandoffWriterPort } from './ports/handoff-writer';
 
 /**
  * Bridge request handler: the only place where an incoming message is turned into an
@@ -19,6 +21,7 @@ import type { ArtifactStorePort } from './ports/artifact-store';
 
 export interface BridgeHandlerDeps {
   readonly store: ArtifactStorePort;
+  readonly handoff: HandoffWriterPort;
   /** Exact origins allowed to talk to this bridge; empty means fail closed. */
   readonly allowedOrigins: readonly string[];
   readonly bridgeVersion: string;
@@ -51,6 +54,8 @@ export async function handleBridgeMessage(
         return await handleArtifactWrite(envelope, payload, deps);
       case 'artifact.read':
         return await handleArtifactRead(envelope, payload, deps);
+      case 'handoff.materialize':
+        return await handleHandoffMaterialize(envelope, payload, deps);
     }
   } catch (error) {
     return errorResponse(envelope.requestId, {
@@ -128,6 +133,48 @@ async function handleArtifactRead(
     byteLength: outcome.artifact.byteLength,
     mediaType: outcome.artifact.mediaType,
     contentBase64: encodeBase64(outcome.artifact.content),
+  });
+}
+
+async function handleHandoffMaterialize(
+  envelope: BridgeEnvelope,
+  payload: unknown,
+  deps: BridgeHandlerDeps,
+): Promise<BridgeResponse> {
+  const parsed = parseBridgePayload('handoff.materialize', payload);
+  if (!parsed.ok) {
+    return errorResponse(envelope.requestId, parsed.error);
+  }
+
+  const { sessionId, brief, files } = parsed.value;
+  const planned = deps.handoff.plan({
+    sessionId,
+    fileNames: files.map((file) => file.name),
+  });
+  if (!planned.ok) {
+    return errorResponse(envelope.requestId, { code: planned.code, message: planned.message });
+  }
+
+  const markdown = renderReviewBriefMarkdown(brief, planned.plan);
+  const reviewJson = `${JSON.stringify(brief, null, 2)}\n`;
+  const outcome = await deps.handoff.materialize({
+    sessionId,
+    reviewJson,
+    reviewMarkdown: markdown,
+    files,
+  });
+  if (!outcome.ok) {
+    return errorResponse(envelope.requestId, { code: outcome.code, message: outcome.message });
+  }
+
+  return successResponse(envelope.requestId, {
+    kind: 'handoff.materialize',
+    sessionId,
+    directory: outcome.handoff.directory,
+    markdownPath: outcome.handoff.markdownPath,
+    jsonPath: outcome.handoff.jsonPath,
+    files: outcome.handoff.files,
+    markdown,
   });
 }
 

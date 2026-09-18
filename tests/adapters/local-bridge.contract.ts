@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { LocalBridgePort } from '@core';
+import {
+  buildReviewBrief,
+  createAttachment,
+  createReviewComment,
+  createReviewSession,
+  type LocalBridgePort,
+  type ReviewBriefBundle,
+} from '@core';
 
 export type LocalBridgeScenario = 'available' | 'unavailable';
 
@@ -13,6 +20,38 @@ const WRITE_INPUT = {
   mediaType: 'application/json',
   content: new Uint8Array([1, 2, 3]),
 } as const;
+
+function sampleBundle(): ReviewBriefBundle {
+  const comment = createReviewComment({
+    id: 'comment-1',
+    sessionId: 'session-1',
+    text: 'The button is misaligned.',
+    pageUrl: 'https://example.com/pricing',
+    viewport: { width: 1440, height: 900 },
+    createdAt: '2026-09-18T10:05:00.000Z',
+    attachments: [
+      createAttachment({
+        id: 'attachment-1',
+        commentId: 'comment-1',
+        kind: 'element-crop',
+        mimeType: 'image/png',
+        width: 1,
+        height: 1,
+        byteLength: 3,
+        createdAt: '2026-09-18T10:05:00.000Z',
+        storage: { type: 'inline-data-url', dataUrl: 'data:image/png;base64,AQID' },
+      }),
+    ],
+  });
+  const session = createReviewSession({
+    id: 'session-1',
+    name: 'example.com — 18 Sep 2026, 10:00',
+    pageUrl: 'https://example.com/pricing',
+    startedAt: '2026-09-18T10:00:00.000Z',
+    comments: [comment],
+  });
+  return buildReviewBrief(session, { generatedAt: '2026-09-18T10:06:00.000Z' });
+}
 
 /** Behaviour every `LocalBridgePort` implementation must provide. */
 export function describeLocalBridgePortContract(options: LocalBridgePortContractOptions): void {
@@ -75,12 +114,60 @@ export function describeLocalBridgePortContract(options: LocalBridgePortContract
       expect(result).toMatchObject({ ok: false, reason: 'bridge-unavailable' });
     });
 
+    it('materializes a handoff and returns the exact markdown with real paths', async () => {
+      const port = options.createPort('available');
+      const bundle = sampleBundle();
+
+      const result = await port.materializeHandoff({
+        sessionId: bundle.brief.session.id,
+        brief: bundle.brief,
+        files: bundle.files,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.handoff.directory).toContain('session-1');
+      expect(result.handoff.markdownPath).toContain('review.md');
+      expect(result.handoff.jsonPath).toContain('review.json');
+      expect(result.handoff.markdown).toContain('Comment ID: comment-1');
+      for (const file of result.handoff.files) {
+        expect(file.path).toBe(`${result.handoff.directory}/${file.name}`);
+        expect(result.handoff.markdown).toContain(file.path);
+      }
+    });
+
+    it('refuses a traversal-shaped session before the wire', async () => {
+      const port = options.createPort('available');
+      const bundle = sampleBundle();
+
+      const result = await port.materializeHandoff({
+        sessionId: '../escape',
+        brief: bundle.brief,
+        files: bundle.files,
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'bridge-rejected',
+        code: 'invalid-session-id',
+      });
+    });
+
     it('never throws for expected failures', async () => {
       const port = options.createPort('unavailable');
 
       await expect(port.writeArtifact(WRITE_INPUT)).resolves.toBeDefined();
       await expect(
         port.readArtifact({ sessionId: 'session-1', name: 'review.json' }),
+      ).resolves.toBeDefined();
+      await expect(
+        port.materializeHandoff({
+          sessionId: 'session-1',
+          brief: sampleBundle().brief,
+          files: [],
+        }),
       ).resolves.toBeDefined();
     });
   });

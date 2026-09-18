@@ -5,6 +5,7 @@ import {
   type BridgeResponse,
   type BridgeSuccessResponse,
   type LocalBridgeFailure,
+  type LocalBridgeHandoffResult,
   type LocalBridgeHealthResult,
   type LocalBridgeReadResult,
   type LocalBridgeWriteResult,
@@ -68,6 +69,28 @@ export function writeOutcome(response: BridgeSuccessResponse): LocalBridgeWriteR
       name: response.result.name,
       path: response.result.path,
       byteLength: response.result.byteLength,
+    },
+  };
+}
+
+export function handoffOutcome(response: BridgeSuccessResponse): LocalBridgeHandoffResult {
+  if (response.result.kind !== 'handoff.materialize') {
+    return invalidResponseFailure('The bridge handoff result is missing.');
+  }
+
+  return {
+    ok: true,
+    handoff: {
+      sessionId: response.result.sessionId,
+      directory: response.result.directory,
+      markdownPath: response.result.markdownPath,
+      jsonPath: response.result.jsonPath,
+      files: response.result.files.map((file) => ({
+        name: file.name,
+        path: file.path,
+        byteLength: file.byteLength,
+      })),
+      markdown: response.result.markdown,
     },
   };
 }

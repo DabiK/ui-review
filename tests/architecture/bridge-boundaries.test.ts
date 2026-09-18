@@ -7,6 +7,12 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const BRIDGE_DIR = resolve(ROOT, 'src/bridge');
 const BRIDGE_CORE_DIR = resolve(BRIDGE_DIR, 'core');
 const SHARED_PROTOCOL_DIR = resolve(ROOT, 'src/core/bridge');
+/**
+ * The pure handoff brief module is shared with the extension: the bridge core validates the
+ * versioned document and renders `review.md` from it. It lives in the core (guarded by the
+ * core-boundaries test) and the extra assertion below keeps it free of runtime globals.
+ */
+const SHARED_HANDOFF_DIR = resolve(ROOT, 'src/core/handoff');
 
 const IMPORT_PATTERN = /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 const RUNTIME_GLOBALS =
@@ -56,10 +62,12 @@ function stripComments(source: string): string {
 describe('native bridge boundaries', () => {
   const bridgeSources = collectSources(BRIDGE_DIR);
   const coreSources = collectSources(BRIDGE_CORE_DIR);
+  const sharedSources = collectSources(SHARED_HANDOFF_DIR);
 
   it('has bridge sources to check', () => {
     expect(bridgeSources.length).toBeGreaterThan(0);
     expect(coreSources.length).toBeGreaterThan(0);
+    expect(sharedSources.length).toBeGreaterThan(0);
   });
 
   it('keeps the bridge core free of runtime technology imports', () => {
@@ -77,7 +85,9 @@ describe('native bridge boundaries', () => {
           resolved === BRIDGE_CORE_DIR ||
           resolved.startsWith(`${BRIDGE_CORE_DIR}${sep}`) ||
           resolved === SHARED_PROTOCOL_DIR ||
-          resolved.startsWith(`${SHARED_PROTOCOL_DIR}${sep}`);
+          resolved.startsWith(`${SHARED_PROTOCOL_DIR}${sep}`) ||
+          resolved === SHARED_HANDOFF_DIR ||
+          resolved.startsWith(`${SHARED_HANDOFF_DIR}${sep}`);
         if (!allowed) {
           violations.push(`${location} escapes the pure bridge core through "${specifier}"`);
         }
@@ -91,6 +101,20 @@ describe('native bridge boundaries', () => {
     const violations: string[] = [];
 
     for (const file of coreSources) {
+      const source = stripComments(readFileSync(file, 'utf8'));
+      const match = RUNTIME_GLOBALS.exec(source);
+      if (match !== null) {
+        violations.push(`${relative(ROOT, file)} references "${match[0]}"`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps the shared handoff module pure too', () => {
+    const violations: string[] = [];
+
+    for (const file of sharedSources) {
       const source = stripComments(readFileSync(file, 'utf8'));
       const match = RUNTIME_GLOBALS.exec(source);
       if (match !== null) {

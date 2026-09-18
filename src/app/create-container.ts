@@ -5,6 +5,7 @@ import {
   clearReviewSession,
   deleteReviewComment,
   deleteReviewCommentAttachment,
+  exportReviewHandoff,
   loadOverlayState,
   loadReviewPanel,
   readSessionArtifact,
@@ -22,6 +23,7 @@ import {
   type DeleteReviewCommentAttachmentResult,
   type DeleteReviewCommentInput,
   type DeleteReviewCommentResult,
+  type ExportReviewHandoffResult,
   type LoadReviewPanelInput,
   type LocalBridgeArtifactRef,
   type LocalBridgeArtifactWriteInput,
@@ -44,6 +46,7 @@ import { ChromeScreenshotCaptureAdapter } from '@adapters/chrome/screenshot-capt
 import { IndexedDbReviewSessionRepository } from '@adapters/persistence/indexeddb/indexeddb-review-session-repository';
 import { ChromeRuntimeInfoAdapter } from '@adapters/runtime/chrome-runtime-info';
 import { CryptoIdGeneratorAdapter } from '@adapters/runtime/crypto-id-generator';
+import { NavigatorClipboardAdapter } from '@adapters/runtime/navigator-clipboard';
 import { SystemClockAdapter } from '@adapters/runtime/system-clock';
 import type { ReviewChangeBroadcaster } from './gateways';
 
@@ -70,6 +73,7 @@ export interface AppContainer extends ReviewChangeBroadcaster {
   checkLocalBridge(): Promise<LocalBridgeHealthResult>;
   storeSessionArtifact(input: LocalBridgeArtifactWriteInput): Promise<LocalBridgeWriteResult>;
   readSessionArtifact(input: LocalBridgeArtifactRef): Promise<LocalBridgeReadResult>;
+  exportReviewHandoff(sessionId: SessionId): Promise<ExportReviewHandoffResult>;
   subscribeToReviewChanges(listener: () => void): () => void;
 }
 
@@ -82,6 +86,7 @@ export function createAppContainer(): AppContainer {
   const channel = new ChromeReviewChannel();
   const screenshots = new ChromeScreenshotCaptureAdapter();
   const bridge = new ChromeNativeMessagingBridgeAdapter({ ids });
+  const clipboard = new NavigatorClipboardAdapter();
 
   return {
     loadReviewPanel: (input) => loadReviewPanel({ sessions, pages, runtimeInfo }, input),
@@ -101,6 +106,8 @@ export function createAppContainer(): AppContainer {
     checkLocalBridge: () => checkLocalBridge({ bridge }),
     storeSessionArtifact: (input) => storeSessionArtifact({ bridge }, input),
     readSessionArtifact: (input) => readSessionArtifact({ bridge }, input),
+    exportReviewHandoff: (sessionId) =>
+      exportReviewHandoff({ sessions, bridge, clipboard, clock }, { sessionId }),
     notifyPanelChanged: () => channel.notifyPanelChanged(),
     syncPageOverlay: (pageUrl) => channel.syncPageOverlay(pageUrl),
     subscribeToReviewChanges: (listener) => channel.subscribe(listener),

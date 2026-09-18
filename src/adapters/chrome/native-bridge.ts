@@ -6,12 +6,15 @@ import {
   type IdGeneratorPort,
   type LocalBridgeArtifactRef,
   type LocalBridgeArtifactWriteInput,
+  type LocalBridgeHandoffInput,
+  type LocalBridgeHandoffResult,
   type LocalBridgeHealthResult,
   type LocalBridgePort,
   type LocalBridgeReadResult,
   type LocalBridgeWriteResult,
 } from '@core';
 import {
+  handoffOutcome,
   healthOutcome,
   interpretBridgeResponse,
   invalidResponseFailure,
@@ -65,8 +68,21 @@ export class ChromeNativeMessagingBridgeAdapter implements LocalBridgePort {
     return interpreted.ok ? readOutcome(interpreted.response) : interpreted.failure;
   }
 
+  async materializeHandoff(input: LocalBridgeHandoffInput): Promise<LocalBridgeHandoffResult> {
+    const interpreted = await this.request('handoff.materialize', {
+      sessionId: input.sessionId,
+      brief: input.brief,
+      files: input.files.map((file) => ({
+        name: file.name,
+        mediaType: file.mediaType,
+        contentBase64: encodeBase64(file.content),
+      })),
+    });
+    return interpreted.ok ? handoffOutcome(interpreted.response) : interpreted.failure;
+  }
+
   private async request(
-    operation: 'bridge.health' | 'artifact.write' | 'artifact.read',
+    operation: 'bridge.health' | 'artifact.write' | 'artifact.read' | 'handoff.materialize',
     payload: unknown,
   ): Promise<ReturnType<typeof interpretBridgeResponse>> {
     let origin: string;

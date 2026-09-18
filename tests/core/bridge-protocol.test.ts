@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   BRIDGE_PROTOCOL_VERSION,
+  buildReviewBrief,
+  createReviewComment,
+  createReviewSession,
   encodeBase64,
   errorResponse,
   guessArtifactMediaType,
@@ -12,7 +15,9 @@ import {
   readRequestId,
   successResponse,
   type BridgeArtifactReadResult,
+  type BridgeHandoffMaterializeResult,
   type BridgeResponse,
+  type ReviewBriefBundle,
 } from '@core';
 
 const CONTENT = new Uint8Array([1, 2, 3, 4]);
@@ -326,5 +331,204 @@ describe('artifact media type guessing', () => {
     expect(guessArtifactMediaType('review.json')).toBe('application/json');
     expect(guessArtifactMediaType('notes.unknownext')).toBeNull();
     expect(guessArtifactMediaType('noextension')).toBeNull();
+  });
+});
+
+const TINY_PNG_BASE64 = 'AQID';
+const TINY_PNG_DATA_URL = `data:image/png;base64,${TINY_PNG_BASE64}`;
+
+function sampleBundle(): ReviewBriefBundle {
+  const comment = createReviewComment({
+    id: 'comment-1',
+    sessionId: 'session-1',
+    text: 'The button is misaligned.',
+    pageUrl: 'https://example.com/pricing',
+    viewport: { width: 1440, height: 900 },
+    createdAt: '2026-09-18T10:05:00.000Z',
+    attachments: [
+      {
+        id: 'attachment-1',
+        commentId: 'comment-1',
+        kind: 'element-crop',
+        mimeType: 'image/png',
+        width: 1,
+        height: 1,
+        byteLength: 3,
+        createdAt: '2026-09-18T10:05:00.000Z',
+        storage: { type: 'inline-data-url', dataUrl: TINY_PNG_DATA_URL },
+      },
+    ],
+  });
+  const session = createReviewSession({
+    id: 'session-1',
+    name: 'example.com — 18 Sep 2026, 10:00',
+    pageUrl: 'https://example.com/pricing',
+    startedAt: '2026-09-18T10:00:00.000Z',
+    comments: [comment],
+  });
+  return buildReviewBrief(session, { generatedAt: '2026-09-18T10:06:00.000Z' });
+}
+
+function handoffPayload(bundle: ReviewBriefBundle, overrides: Record<string, unknown> = {}) {
+  return {
+    sessionId: bundle.brief.session.id,
+    brief: bundle.brief,
+    files: bundle.files.map((file) => ({
+      name: file.name,
+      mediaType: file.mediaType,
+      contentBase64: encodeBase64(file.content),
+    })),
+    ...overrides,
+  };
+}
+
+describe('bridge protocol handoff payloads', () => {
+  it('accepts a brief that matches its decoded files', () => {
+    const bundle = sampleBundle();
+
+    const parsed = parseBridgePayload('handoff.materialize', handoffPayload(bundle));
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok && 'files' in parsed.value) {
+      expect(parsed.value.sessionId).toBe('session-1');
+      expect(parsed.value.brief.comments[0]?.attachments[0]?.file).toBe('01-element-crop.png');
+      expect(Array.from(parsed.value.files[0]?.content ?? [])).toEqual([1, 2, 3]);
+    }
+  });
+
+  it('refuses an unsupported brief schema version with a typed code', () => {
+    const bundle = sampleBundle();
+
+    const parsed = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, { brief: { ...bundle.brief, schemaVersion: 2 } }),
+    );
+
+    expect(parsed).toMatchObject({ ok: false, error: { code: 'unsupported-brief-version' } });
+  });
+
+  it('refuses a brief from another session or a mismatched file list', () => {
+    const bundle = sampleBundle();
+
+    const wrongSession = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, { sessionId: 'session-2' }),
+    );
+    const missingFile = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, { files: [] }),
+    );
+    const extraFile = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, {
+        files: [
+          ...handoffPayload(bundle)['files'],
+          { name: 'extra.png', mediaType: 'image/png', contentBase64: TINY_PNG_BASE64 },
+        ],
+      }),
+    );
+
+    expect(wrongSession.ok).toBe(false);
+    expect(missingFile.ok).toBe(false);
+    expect(extraFile.ok).toBe(false);
+  });
+
+  it('refuses traversal, reserved and duplicated file names', () => {
+    const bundle = sampleBundle();
+    const files = handoffPayload(bundle)['files'];
+
+    const traversal = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, { files: [{ ...files[0], name: '../escape.png' }] }),
+    );
+    const reserved = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, { files: [{ ...files[0], name: 'review.md' }] }),
+    );
+    const duplicated = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, {
+        files: [
+          { ...files[0], name: '01-element-crop.png' },
+          { ...files[0], name: '01-element-crop.png' },
+        ],
+        brief: {
+          ...bundle.brief,
+          comments: [
+            {
+              ...bundle.brief.comments[0],
+              attachments: [
+                { ...bundle.brief.comments[0]?.attachments[0], file: '01-element-crop.png' },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(traversal).toMatchObject({ ok: false, error: { code: 'invalid-artifact-name' } });
+    expect(reserved).toMatchObject({ ok: false, error: { code: 'invalid-artifact-name' } });
+    expect(duplicated.ok).toBe(false);
+  });
+
+  it('refuses malformed base64, non-image media types and oversized files', () => {
+    const bundle = sampleBundle();
+    const files = handoffPayload(bundle)['files'];
+
+    const badBase64 = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, { files: [{ ...files[0], contentBase64: 'not base64!' }] }),
+    );
+    const badMedia = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle, { files: [{ ...files[0], mediaType: 'application/json' }] }),
+    );
+    const tooLarge = parseBridgePayload(
+      'handoff.materialize',
+      handoffPayload(bundle),
+      { maxArtifactBytes: 2 },
+    );
+
+    expect(badBase64).toMatchObject({ ok: false, error: { code: 'invalid-base64' } });
+    expect(badMedia).toMatchObject({ ok: false, error: { code: 'unsupported-media-type' } });
+    expect(tooLarge).toMatchObject({ ok: false, error: { code: 'artifact-too-large' } });
+  });
+
+  it('parses a well-formed handoff result and rejects malformed ones', () => {
+    const result: BridgeHandoffMaterializeResult = {
+      kind: 'handoff.materialize',
+      sessionId: 'session-1',
+      directory: '/tmp/ui-review/session-1',
+      markdownPath: '/tmp/ui-review/session-1/review.md',
+      jsonPath: '/tmp/ui-review/session-1/review.json',
+      files: [
+        {
+          name: '01-element-crop.png',
+          path: '/tmp/ui-review/session-1/01-element-crop.png',
+          byteLength: 3,
+        },
+      ],
+      markdown: '# UI Review brief\n',
+    };
+
+    expect(parseBridgeResponse(successResponse('r', result)).ok).toBe(true);
+    expect(
+      parseBridgeResponse(
+        successResponse('r', { ...result, markdown: '' } as unknown as BridgeHandoffMaterializeResult),
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseBridgeResponse(
+        successResponse('r', { ...result, unknown: true } as unknown as BridgeHandoffMaterializeResult),
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseBridgeResponse(
+        successResponse('r', {
+          ...result,
+          files: [{ name: 'a.png', path: '/tmp/a.png', byteLength: -1 }],
+        } as unknown as BridgeHandoffMaterializeResult),
+      ).ok,
+    ).toBe(false);
   });
 });

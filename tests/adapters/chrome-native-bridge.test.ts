@@ -3,6 +3,7 @@ import { BRIDGE_HOST_NAME, BRIDGE_PROTOCOL_VERSION, parseBridgeEnvelope } from '
 import { ChromeNativeMessagingBridgeAdapter } from '@adapters/chrome/native-bridge';
 import { SequentialIdGeneratorAdapter } from '@adapters/runtime/sequential-id-generator';
 import { InMemoryArtifactStore } from '../../src/bridge/adapters/in-memory/in-memory-artifact-store';
+import { InMemoryHandoffWriter } from '../../src/bridge/adapters/in-memory/in-memory-handoff-writer';
 import { handleBridgeMessage } from '../../src/bridge/core/handle-request';
 import { describeLocalBridgePortContract } from './local-bridge.contract';
 
@@ -44,6 +45,7 @@ describeLocalBridgePortContract({
       stubChrome((_host, message) =>
         handleBridgeMessage(message, {
           store,
+          handoff: new InMemoryHandoffWriter({ root: '/chrome-contract-handoff' }),
           allowedOrigins: [ORIGIN],
           bridgeVersion: '0.1.0',
           platform: 'test',

@@ -1,6 +1,7 @@
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { FileSystemArtifactStore } from './adapters/fs/file-system-artifact-store';
+import { FileSystemHandoffWriter } from './adapters/fs/file-system-handoff-writer';
 import {
   serveNativeMessaging,
   type NativeMessagingServer,
@@ -14,12 +15,14 @@ import { BRIDGE_VERSION } from './core/version';
 /**
  * Composition root of the native bridge executable. Chrome launches it through a Native
  * Messaging host manifest and speaks length-prefixed JSON on stdin/stdout. It never opens a
- * port; the only durable side effect is writing under the OS application-data directory.
+ * port; its side effects are `<app-data>/ui-review/sessions` and the temporary handoff
+ * directory under the OS temp root.
  */
 
 const APP_DIRECTORY_NAME = 'ui-review';
 const ALLOWED_ORIGINS_VARIABLE = 'UI_REVIEW_BRIDGE_ALLOWED_ORIGINS';
 const DATA_ROOT_VARIABLE = 'UI_REVIEW_BRIDGE_DATA_ROOT';
+const HANDOFF_ROOT_VARIABLE = 'UI_REVIEW_BRIDGE_HANDOFF_ROOT';
 
 const allowedOrigins = parseAllowedOrigins(process.env[ALLOWED_ORIGINS_VARIABLE]);
 if (allowedOrigins.length === 0) {
@@ -40,6 +43,7 @@ if (callerOrigin !== undefined && !allowedOrigins.includes(callerOrigin)) {
 
 const paths: AppDataPathsPort = createAppDataPathsOrExit(homedir());
 const store = new FileSystemArtifactStore({ root: resolveDataRoot(paths) });
+const handoff = new FileSystemHandoffWriter({ root: resolveHandoffRoot() });
 
 const server: NativeMessagingServer = serveNativeMessaging({
   input: process.stdin,
@@ -47,6 +51,7 @@ const server: NativeMessagingServer = serveNativeMessaging({
   handle: (message) =>
     handleBridgeMessage(message, {
       store,
+      handoff,
       allowedOrigins,
       bridgeVersion: BRIDGE_VERSION,
       platform: process.platform,
@@ -77,6 +82,19 @@ function resolveDataRoot(paths: AppDataPathsPort): string {
     return override;
   }
   return join(paths.appDataDirectory(), APP_DIRECTORY_NAME);
+}
+
+/**
+ * Temporary handoff root: the OS temp directory by default (`/tmp` on macOS, the Windows
+ * temp equivalent), overridable through `UI_REVIEW_BRIDGE_HANDOFF_ROOT` (must be absolute)
+ * for development and smoke tests.
+ */
+function resolveHandoffRoot(): string {
+  const override = process.env[HANDOFF_ROOT_VARIABLE];
+  if (override !== undefined && isAbsolute(override)) {
+    return override;
+  }
+  return join(tmpdir(), APP_DIRECTORY_NAME, 'handoff');
 }
 
 function createAppDataPathsOrExit(home: string): AppDataPathsPort {

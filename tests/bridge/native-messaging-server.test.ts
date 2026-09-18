@@ -6,6 +6,7 @@ import { decodeNativeFrames, encodeNativeMessage } from '../../src/bridge/adapte
 import { serveNativeMessaging } from '../../src/bridge/adapters/native-messaging/native-messaging-server';
 import { handleBridgeMessage } from '../../src/bridge/core/handle-request';
 import { InMemoryArtifactStore } from '../../src/bridge/adapters/in-memory/in-memory-artifact-store';
+import { InMemoryHandoffWriter } from '../../src/bridge/adapters/in-memory/in-memory-handoff-writer';
 
 class FrameReader {
   readonly frames: BridgeResponse[] = [];
@@ -83,6 +84,7 @@ describe('native messaging server', () => {
     const { input, reader } = createServer((message) =>
       handleBridgeMessage(message, {
         store,
+        handoff: new InMemoryHandoffWriter({ root: '/handoff-root' }),
         allowedOrigins: ['chrome-extension://allowed/'],
         bridgeVersion: '0.1.0',
         platform: 'darwin',
