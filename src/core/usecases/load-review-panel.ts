@@ -30,6 +30,7 @@ export interface SessionSummary {
   readonly id: SessionId;
   readonly name: string;
   readonly status: SessionStatus;
+  readonly annotationPaused?: boolean;
   readonly pageUrl: string;
   readonly hostname: string;
   readonly startedAt: string;
@@ -188,6 +189,7 @@ function toSessionSummary(session: ReviewSession): SessionSummary {
     id: session.id,
     name: session.name,
     status: session.status,
+    annotationPaused: session.annotationPaused ?? false,
     pageUrl: session.pageUrl,
     hostname: session.hostname,
     startedAt: session.startedAt,

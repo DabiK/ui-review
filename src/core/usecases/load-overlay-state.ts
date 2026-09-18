@@ -68,7 +68,7 @@ function findActiveSession(
   pageUrl: string,
 ): ReviewSession | null {
   return (
-    sessions.find((session) => session.status === 'active' && session.pageUrl === pageUrl) ?? null
+    sessions.find((session) => session.status === 'active' && session.annotationPaused !== true && session.pageUrl === pageUrl) ?? null
   );
 }
 

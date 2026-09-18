@@ -101,6 +101,7 @@ describe('loadReviewPanel', () => {
     const panel = await loadReviewPanel(deps(repository));
 
     expect(panel.currentSession).toEqual({
+      annotationPaused: false,
       id: 'session-1',
       name: 'session-1 — 18 Sep 2026',
       status: 'active',

@@ -420,6 +420,13 @@ domain decision):
 
 ## Testing strategy
 
+The side-panel renderer owns presentation-only continuity across renders: open disclosures,
+dirty form values, selection and focus for the same selected session. It consumes only the
+panel read model and reports existing intents; no domain state or adapter selection moves
+into the view. Notes precede collapsible session controls, and the handoff is a sticky footer.
+The shadow-DOM overlay uses matching tokens and a viewport-bounded composer. Visual fixtures
+under `tests/fixtures` exercise these presentation adapters without entering production builds.
+
 - Core tests import only the `@core` barrel and exercise public behaviour.
 - The same `ReviewSessionRepository` contract test runs against the in-memory and IndexedDB
   adapters, so the test double cannot drift from the durable store. `ClockPort`,

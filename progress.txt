@@ -822,3 +822,18 @@ Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas
 quand une référence source n'a pas de ligne/colonne (cas normal d'un `__file` Vue), le panneau
 et le brief affichent la position de repli `:1:1` héritée de #8 ; c'est atteignable aussi côté
 React (`_debugSource` sans ligne). Issue #9 fermée sur les commits faacb63..a720a25.
+
+2026-09-18 — Design handover implementation
+
+- Reworked the side panel into a notes-first working notebook: compact page controls,
+  guided empty state, collapsible evidence/session settings/history, sticky agent handoff.
+- Matched overlay palette/type, improved control spacing and viewport containment, and
+  added an element-tag hover label. No core/bridge changes by the design agent.
+- Preserved same-session dirty fields, selection, disclosure state and keyboard focus;
+  blank form errors use one validation path; lazy evidence images reserve dimensions.
+- npm install and npm run verify passed: 60 files, 578 tests, lint/typecheck/build green.
+- Chrome fixture QA: eight panel states at 390px, editor checks at 320/360/400px, blank
+  submission and overlay keyboard path; no page errors. Independent design_review APPROVED.
+- Evidence and limits: docs/design/REFONTE-EVIDENCE.md. Live native-bridge E2E not repeated.
+- Separate handover debt remains: #13, #15, #16, #19, #25; #14 coverage is limited to the
+  tested renderer continuity cases. Concurrent bridge/setup work was preserved.

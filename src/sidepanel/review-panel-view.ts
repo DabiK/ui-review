@@ -1,7 +1,8 @@
-import { COMMENT_CATEGORIES, COMMENT_PRIORITIES } from '@core';
+import { COMMENT_CATEGORIES, COMMENT_PRIORITIES, isReviewablePageUrl } from '@core';
 import type {
   AttachmentKind,
   AttachmentSummary,
+  BridgeSetup,
   CommentCategory,
   CommentPriority,
   CommentSummary,
@@ -25,9 +26,14 @@ export interface ReviewPanelViewOptions {
   readonly pendingDeleteCommentId?: string | null;
   readonly pendingDeleteAttachmentId?: string | null;
   readonly notice?: string | null;
+  /** Local bridge setup; `undefined` hides the block, `null` means it is being checked. */
+  readonly bridgeSetup?: BridgeSetup | null;
+  readonly onCheckBridge?: () => void;
   readonly onRefresh?: () => void;
   readonly onStartReview?: () => void;
   readonly onStopReview?: (sessionId: string) => void;
+  readonly onSetReviewPaused?: (sessionId: string, paused: boolean) => void;
+  readonly pausePending?: boolean;
   readonly onRenameSession?: (sessionId: string, name: string) => void;
   readonly onSelectSession?: (sessionId: string) => void;
   readonly onRequestClearSession?: (sessionId: string) => void;
@@ -112,9 +118,27 @@ function ledgerRow(term: string, value: string): [HTMLElement, HTMLElement] {
   return [element('dt', 'ledger__term', term), element('dd', 'ledger__value', value)];
 }
 
-function statusBadge(status: SessionSummary['status']): HTMLElement {
-  const label = status === 'active' ? 'Review in progress' : 'Review stopped';
-  return element('p', `status-badge status-badge--${status}`, label);
+function statusBadge(status: SessionSummary['status'], paused = false): HTMLElement {
+  const label = status === 'active' ? (paused ? 'Review paused' : 'Review in progress') : 'Review stopped';
+  return element('p', `status-badge status-badge--${paused && status === 'active' ? 'paused' : status}`, label);
+}
+
+function savedPageLink(session: SessionSummary): HTMLElement {
+  if (!isReviewablePageUrl(session.pageUrl)) return element('p', 'saved-page-link', 'Saved page URL unavailable');
+  const link = element('a', 'saved-page-link', session.pageUrl);
+  link.href = session.pageUrl;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.setAttribute('aria-label', `Open saved page in a new tab: ${session.pageUrl}`);
+  return link;
+}
+
+function pauseButton(session: SessionSummary, options: ReviewPanelViewOptions): HTMLButtonElement {
+  const paused = session.annotationPaused === true;
+  const control = button(paused ? 'Resume review' : 'Pause review', paused ? 'action' : 'action action--ghost', () => options.onSetReviewPaused?.(session.id, !paused));
+  control.disabled = options.pausePending === true;
+  control.dataset['focusId'] = `pause-${session.id}`;
+  return control;
 }
 
 /** Local-time rendering for humans; storage keeps the canonical UTC ISO timestamp. */
@@ -137,10 +161,11 @@ function selectOption(value: string, label: string, selected: boolean): HTMLOpti
 function renderMasthead(title: string, meta: string): HTMLElement {
   const masthead = element('header', 'masthead');
   masthead.append(
-    element('p', 'masthead__kicker', 'Local-first UI review'),
+    element('p', 'masthead__kicker', 'Page notes / Agent brief'),
     element('h1', 'masthead__title', title),
-    element('p', 'masthead__meta', meta),
+    element('p', 'masthead__meta', 'Saved on this device'),
   );
+  masthead.title = meta;
   return masthead;
 }
 
@@ -153,12 +178,7 @@ function renderFooter(options: ReviewPanelViewOptions): HTMLElement {
     element(
       'p',
       'footnote',
-      'Sessions are stored locally in this browser profile. Clearing removes only the selected session.',
-    ),
-    element(
-      'p',
-      'footnote',
-      'While a review is active, click any element on the page to pin a note; press Shift+Escape to leave review mode.',
+      'Stored in this browser. Nothing is uploaded.',
     ),
   );
   return footer;
@@ -174,8 +194,8 @@ function renderCurrentPageSection(
   state: ReviewPanelState,
   options: ReviewPanelViewOptions,
 ): HTMLElement {
-  const section = element('section', 'section');
-  section.append(sectionHeader('01', 'current-page-title', 'Current page'));
+  const section = element('section', 'section page-context');
+  section.setAttribute('aria-label', 'Current page');
 
   const page = state.activePage;
   if (page === null) {
@@ -190,8 +210,8 @@ function renderCurrentPageSection(
   }
   section.append(
     element('p', 'page-host', page.hostname.length > 0 ? page.hostname : 'Restricted page'),
-    element('p', 'page-url', page.url),
   );
+  section.title = page.url;
 
   const actions = element('div', 'actions');
   if (!page.eligible) {
@@ -207,8 +227,12 @@ function renderCurrentPageSection(
 
   const current = state.currentSession;
   if (current !== null && current.status === 'active') {
-    section.append(statusBadge('active'));
-    actions.append(button('Stop review', 'action', () => options.onStopReview?.(current.id)));
+    section.classList.add('page-context--active');
+    section.append(statusBadge('active', current.annotationPaused));
+    actions.append(pauseButton(current, options));
+    section.append(element('p', 'page-hint', current.annotationPaused
+      ? 'Browse freely. Resume here when you are ready to annotate.'
+      : 'Click an element to add a note. Pause to navigate the page.'));
   } else {
     if (current !== null) {
       section.append(statusBadge('stopped'));
@@ -225,6 +249,7 @@ function renderRenameForm(
   options: ReviewPanelViewOptions,
 ): HTMLFormElement {
   const form = element('form', 'field');
+  form.noValidate = true;
   const label = element('label', 'field__label', 'Session name');
   label.htmlFor = 'session-name-input';
 
@@ -233,7 +258,9 @@ function renderRenameForm(
   input.name = 'name';
   input.type = 'text';
   input.value = session.name;
+  input.defaultValue = session.name;
   input.required = true;
+  input.autocomplete = 'off';
 
   const submit = element('button', 'action', 'Rename');
   submit.type = 'submit';
@@ -288,14 +315,14 @@ function renderClearConfirmation(
 /**
  * One-action agent handoff: materialize the brief and copy it. The temporary-directory
  * behavior is explained inline, and the action is disabled while there is nothing to hand
- * off instead of producing an empty brief.
+ * off.
  */
 function renderHandoffBlock(
   session: SessionSummary,
   options: ReviewPanelViewOptions,
 ): HTMLElement {
   const block = element('div', 'handoff');
-  block.append(element('p', 'handoff__label', 'Agent handoff'));
+  block.append(element('p', 'handoff__label', `${session.commentCount} ${session.commentCount === 1 ? 'note' : 'notes'} · Agent handoff`));
 
   const actions = element('div', 'actions');
   const copy = button('Copy agent brief', 'action', () => options.onExportHandoff?.(session.id));
@@ -315,7 +342,7 @@ function renderHandoffBlock(
     element(
       'p',
       'footnote',
-      'Writes review.md, review.json and the screenshots to a temporary per-session folder, then copies the brief to the clipboard. Exporting again updates the same folder; the session itself is never changed.',
+      'Paste into your coding agent. Includes notes, context and screenshots in a temporary local folder.',
     ),
   );
   return block;
@@ -325,8 +352,10 @@ function renderSessionSection(
   session: SessionSummary | null,
   options: ReviewPanelViewOptions,
 ): HTMLElement {
-  const section = element('section', 'section');
-  section.append(sectionHeader('02', 'session-title', 'Session'));
+  const section = element('details', 'section session-settings');
+  section.id = 'session-settings';
+  section.append(element('summary', 'disclosure-title', 'Session settings'));
+  section.open = options.pendingClearSessionId === session?.id;
 
   if (session === null) {
     section.append(
@@ -335,7 +364,10 @@ function renderSessionSection(
     return section;
   }
 
-  section.append(renderRenameForm(session, options), statusBadge(session.status));
+  section.append(renderRenameForm(session, options), statusBadge(session.status, session.annotationPaused));
+  if (session.status === 'active') {
+    section.append(button('Stop review', 'action action--ghost', () => options.onStopReview?.(session.id)));
+  }
 
   const ledger = element('dl', 'ledger');
   ledger.append(
@@ -346,7 +378,7 @@ function renderSessionSection(
     ),
     ...ledgerRow('Notes', String(session.commentCount)),
   );
-  section.append(ledger, renderHandoffBlock(session, options));
+  section.append(ledger);
 
   if (options.pendingClearSessionId === session.id) {
     section.append(renderClearConfirmation(session, options));
@@ -376,6 +408,7 @@ function renderCommentForm(
   options: ReviewPanelViewOptions,
 ): HTMLFormElement {
   const form = element('form', 'comment-form');
+  form.noValidate = true;
   const label = element('label', 'field__label', 'Note text');
   label.htmlFor = 'comment-text-input';
 
@@ -516,6 +549,8 @@ function renderAttachmentFigure(
     image.src = attachment.dataUrl;
     image.alt = `${ATTACHMENT_ALT[attachment.kind]} for note ${String(notePosition).padStart(2, '0')}`;
     image.loading = 'lazy';
+    image.width = attachment.width;
+    image.height = attachment.height;
     figure.append(image);
   } else {
     figure.append(
@@ -618,13 +653,19 @@ function renderCommentRow(
 
   const body = element('div', 'comment__body');
   body.append(meta, element('p', 'comment__text', comment.text));
+  item.dataset['priority'] = comment.priority;
+
+  const evidence = element('details', 'comment__evidence');
+  evidence.id = `evidence-${comment.id}`;
+  evidence.open = comment.attachments.some((attachment) => attachment.id === options.pendingDeleteAttachmentId);
+  evidence.append(element('summary', 'evidence-toggle', `Evidence & context${comment.attachments.length > 0 ? ` · ${comment.attachments.length} images` : ''}`));
 
   if (comment.anchorLabel !== null) {
     body.append(element('p', 'comment__anchor', `Pinned to ${comment.anchorLabel}`));
   }
 
   if (comment.frameworkEvidence !== null) {
-    body.append(
+    evidence.append(
       element(
         'p',
         'comment__framework',
@@ -634,7 +675,7 @@ function renderCommentRow(
   }
 
   if (comment.sourceMapEvidence !== null) {
-    body.append(
+    evidence.append(
       element(
         'p',
         'comment__source-map',
@@ -648,7 +689,7 @@ function renderCommentRow(
     for (const attachment of comment.attachments) {
       figures.append(renderAttachmentFigure(comment, attachment, position, options));
     }
-    body.append(figures);
+    evidence.append(figures);
   }
 
   const captureStatus =
@@ -657,7 +698,7 @@ function renderCommentRow(
     body.append(element('p', 'comment__capture-status', captureStatus));
   }
 
-  body.append(
+  evidence.append(
     element(
       'p',
       'comment__time',
@@ -666,6 +707,7 @@ function renderCommentRow(
         : `Created ${formatDisplayTime(comment.createdAt)} · edited ${formatDisplayTime(comment.updatedAt)}`,
     ),
   );
+  body.append(evidence);
 
   if (options.pendingDeleteCommentId === comment.id) {
     body.append(renderCommentDeleteConfirmation(comment, options));
@@ -688,8 +730,8 @@ function renderCommentsSection(
   state: ReviewPanelState,
   options: ReviewPanelViewOptions,
 ): HTMLElement {
-  const section = element('section', 'section');
-  section.append(sectionHeader('03', 'notes-title', `Notes (${state.comments.length})`));
+  const section = element('section', 'section notes-section');
+  section.append(sectionHeader('', 'notes-title', `Notes (${state.comments.length})`));
 
   if (state.selectedSession === null) {
     section.append(element('p', 'empty', 'Select a session to read its notes.'));
@@ -701,7 +743,11 @@ function renderCommentsSection(
       element(
         'p',
         'empty',
-        'No notes yet. Press Start review, then click any element on the page.',
+        state.selectedSession.annotationPaused
+          ? 'No notes yet. Open the saved page and resume this review to add one.'
+          : state.selectedSession.id === state.currentSession?.id && state.selectedSession.status === 'active'
+          ? 'Your first note starts on the page. Click the element you want to improve.'
+          : 'No notes in this session. Start a new review to annotate this page.',
       ),
     );
     return section;
@@ -719,8 +765,9 @@ function renderSessionsSection(
   state: ReviewPanelState,
   options: ReviewPanelViewOptions,
 ): HTMLElement {
-  const section = element('section', 'section');
-  section.append(sectionHeader('04', 'sessions-title', `Stored sessions (${state.sessions.length})`));
+  const section = element('details', 'section session-history');
+  section.id = 'session-history';
+  section.append(element('summary', 'disclosure-title', `Stored sessions (${state.sessions.length})`));
 
   if (state.sessions.length === 0) {
     section.append(element('p', 'empty', 'No sessions stored yet.'));
@@ -739,7 +786,7 @@ function renderSessionsSection(
       element(
         'span',
         'session-row__meta',
-        `${session.hostname} · ${session.status === 'active' ? 'Active' : 'Stopped'} · ${formatDisplayTime(session.startedAt)}`,
+        `${session.hostname} · ${session.status === 'active' ? (session.annotationPaused ? 'Paused' : 'Active') : 'Stopped'} · ${formatDisplayTime(session.startedAt)}`,
       ),
     );
     row.append(body);
@@ -748,7 +795,9 @@ function renderSessionsSection(
       row.setAttribute('aria-current', 'true');
     }
     row.addEventListener('click', () => options.onSelectSession?.(session.id));
-    list.append(row);
+    const entry = element('div', 'session-entry');
+    entry.append(row, savedPageLink(session));
+    list.append(entry);
   });
 
   section.append(list);
@@ -765,7 +814,21 @@ export function renderReviewPanel(
   state: ReviewPanelState,
   options: ReviewPanelViewOptions = {},
 ): void {
+  const previous = root.querySelector<HTMLElement>('.panel');
+  const sameSession = previous?.dataset['sessionId'] === (state.selectedSession?.id ?? '');
+  const focused = document.activeElement instanceof HTMLElement && root.contains(document.activeElement)
+    ? document.activeElement : null;
+  const focusKey = focused?.dataset['focusKey'];
+  const previousAutofocusKey = root.querySelector<HTMLElement>('[data-autofocus]')?.dataset['focusKey'];
+  const openDetails = new Map([...root.querySelectorAll('details')].map((node) => [node.id, node.open]));
+  const oldEditor = root.querySelector('.comment-form')?.closest<HTMLElement>('[data-comment-id]')?.dataset['commentId'];
+  const drafts = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('.field__input')]
+    .filter((node) => node.id === 'session-name-input'
+      ? node instanceof HTMLInputElement && node.value !== node.defaultValue
+      : oldEditor === options.editingCommentId)
+    .map((node) => ({ id: node.id, value: node.value, start: node instanceof HTMLSelectElement ? null : node.selectionStart, end: node instanceof HTMLSelectElement ? null : node.selectionEnd }));
   const panel = element('article', 'panel');
+  panel.dataset['sessionId'] = state.selectedSession?.id ?? '';
   panel.append(renderMasthead(state.extensionName, `v${state.extensionVersion} · ${state.runtimeLabel}`));
 
   const notice = options.notice;
@@ -775,14 +838,71 @@ export function renderReviewPanel(
 
   panel.append(
     renderCurrentPageSection(state, options),
-    renderSessionSection(state.selectedSession, options),
-    renderCommentsSection(state, options),
-    renderSessionsSection(state, options),
-    renderFooter(options),
   );
 
+  if (state.selectedSession === null) {
+    const welcome = element('section', 'welcome');
+    welcome.append(
+      element('span', 'welcome__mark', '↗'),
+      element('h2', 'welcome__title', 'A clearer way to give feedback.'),
+      element('p', 'welcome__description', 'Turn what you see into clear, actionable feedback for your coding agent.'),
+    );
+    const steps = element('ol', 'welcome__steps');
+    for (const [title, description] of [
+      ['Start a review', 'Choose the page you want to improve.'],
+      ['Point out what matters', 'Click an element and describe the change.'],
+      ['Hand it to your agent', 'Copy a brief with the evidence included.'],
+    ]) {
+      const step = element('li', 'welcome__step');
+      step.append(element('strong', '', title), element('span', '', description));
+      steps.append(step);
+    }
+    welcome.append(steps);
+    panel.append(welcome);
+  } else {
+    const heading = element('div', 'review-heading');
+    heading.append(element('p', 'eyebrow', 'Selected review'), element('h2', 'review-heading__name', state.selectedSession.name));
+    heading.append(savedPageLink(state.selectedSession));
+    if (state.selectedSession.id !== state.currentSession?.id) {
+      heading.append(element('p', 'page-hint', `Viewing saved notes for ${state.selectedSession.hostname}. Page controls above apply to the current tab.`));
+      if (state.selectedSession.status === 'active' && state.selectedSession.annotationPaused) {
+        heading.append(statusBadge('active', true), element('p', 'page-hint', 'Open the saved page above, then resume this review.'));
+      }
+    }
+    panel.append(heading, renderCommentsSection(state, options), renderSessionSection(state.selectedSession, options));
+  }
+  panel.append(renderSessionsSection(state, options), renderFooter(options));
+  if (state.selectedSession !== null) panel.append(renderHandoffBlock(state.selectedSession, options));
+
+  for (const node of panel.querySelectorAll<HTMLElement>('button, input, textarea, select, summary, a')) {
+    const context = node.closest<HTMLElement>('[data-attachment-id], [data-comment-id]');
+    node.dataset['focusKey'] = node.dataset['focusId'] || node.id || `${context?.dataset['attachmentId'] ?? context?.dataset['commentId'] ?? ''}:${node.textContent}`;
+  }
+  if (sameSession) {
+    for (const details of panel.querySelectorAll('details')) {
+      if (!details.open) details.open = openDetails.get(details.id) ?? false;
+    }
+    for (const draft of drafts) {
+      const field = [...panel.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('.field__input')].find((node) => node.id === draft.id);
+      if (field !== undefined) {
+        field.value = draft.value;
+        if (!(field instanceof HTMLSelectElement) && draft.start !== null) field.setSelectionRange(draft.start, draft.end);
+      }
+    }
+  }
   root.replaceChildren(panel);
-  root.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+  const nextFocus = sameSession && focusKey !== undefined
+    ? [...panel.querySelectorAll<HTMLElement>('[data-focus-key]')].find((node) => node.dataset['focusKey'] === focusKey)
+    : undefined;
+  const autofocus = panel.querySelector<HTMLElement>('[data-autofocus]');
+  const newEditor = oldEditor !== options.editingCommentId ? panel.querySelector<HTMLElement>('#comment-text-input') : null;
+  const enteringConfirmation = autofocus !== null && (!sameSession || autofocus.dataset['focusKey'] !== previousAutofocusKey);
+  const target = (enteringConfirmation ? autofocus : null) ?? newEditor ?? nextFocus;
+  if (target) target.focus({ preventScroll: true });
+  else if (focused) {
+    const fallback = panel.querySelector<HTMLElement>('#notes-title, .welcome__title');
+    if (fallback) { fallback.tabIndex = -1; fallback.focus({ preventScroll: true }); }
+  }
 }
 
 export function renderReviewPanelError(

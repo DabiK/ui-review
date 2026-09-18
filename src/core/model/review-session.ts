@@ -14,6 +14,8 @@ export interface ReviewSession {
   readonly id: SessionId;
   readonly name: string;
   readonly status: SessionStatus;
+  /** Missing on older records means annotation is enabled. Pause does not end the session. */
+  readonly annotationPaused?: boolean;
   readonly pageUrl: string;
   readonly hostname: string;
   readonly startedAt: string;
@@ -103,6 +105,14 @@ export function stopSession(session: ReviewSession, stoppedAt: string): ReviewSe
 /** Renames a session without touching its status, comments or timestamps. */
 export function renameSession(session: ReviewSession, name: string): ReviewSession {
   return { ...session, name: assertNonBlank(name, 'name') };
+}
+
+/** Pauses page interception while preserving the active review and its evidence. */
+export function setSessionPaused(session: ReviewSession, paused: boolean): ReviewSession {
+  if (session.status !== 'active') {
+    throw new DomainValidationError('status', 'a stopped review cannot be paused or resumed');
+  }
+  return { ...session, annotationPaused: paused };
 }
 
 /** Newest first, with a stable tie-breaker so list rendering is deterministic. */

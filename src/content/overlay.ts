@@ -80,7 +80,7 @@ const OVERLAY_STYLES = `
 
 .ui-review-highlight {
   background: rgba(34, 62, 92, 0.08);
-  border: 1px solid #6e2130;
+  border: 1px solid #763849;
   border-radius: 2px;
   pointer-events: none;
   position: fixed;
@@ -92,10 +92,24 @@ const OVERLAY_STYLES = `
   position: fixed;
 }
 
+.ui-review-target-label {
+  position: absolute;
+  left: -1px;
+  top: -25px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #763849;
+  color: white;
+  padding: 3px 7px;
+  font: 11px/18px ui-monospace, monospace;
+}
+
 .ui-review-pin {
-  background: #6e2130;
+  background: #763849;
   border-radius: 2px;
-  color: #f6f1e7;
+  color: #faf9f6;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   letter-spacing: 0.08em;
@@ -109,23 +123,25 @@ const OVERLAY_STYLES = `
 
 .ui-review-badge {
   align-items: center;
-  background: #f6f1e7;
-  border: 1px solid #1f1d1a;
+  background: #faf9f6;
+  border: 1px solid #242824;
   border-radius: 2px;
   bottom: 16px;
-  color: #1f1d1a;
+  color: #242824;
   display: flex;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
   font-size: 12px;
   gap: 10px;
   padding: 8px 10px;
   pointer-events: none;
   position: fixed;
   right: 16px;
+  max-width: calc(100vw - 32px);
+  flex-wrap: wrap;
 }
 
 .ui-review-badge__title {
-  color: #6e2130;
+  color: #763849;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   letter-spacing: 0.14em;
@@ -133,7 +149,7 @@ const OVERLAY_STYLES = `
 }
 
 .ui-review-badge__hint {
-  color: #8a8175;
+  color: #62685f;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -142,28 +158,29 @@ const OVERLAY_STYLES = `
 .ui-review-button {
   appearance: none;
   background: transparent;
-  border: 1px solid #223e5c;
+  border: 1px solid #294d42;
   border-radius: 2px;
   cursor: pointer;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  padding: 6px 10px;
+  min-height: 36px;
+  padding: 8px 12px;
 }
 
 .ui-review-button:focus-visible {
-  outline: 2px solid #6e2130;
+  outline: 2px solid #763849;
   outline-offset: 2px;
 }
 
 .ui-review-button--primary {
-  background: #223e5c;
+  background: #294d42;
   color: #ffffff;
 }
 
 .ui-review-button--primary:hover {
-  background: #1b3249;
-  border-color: #1b3249;
+  background: #1c392f;
+  border-color: #1c392f;
 }
 
 .ui-review-button--primary:disabled {
@@ -172,34 +189,36 @@ const OVERLAY_STYLES = `
 }
 
 .ui-review-button--ghost {
-  border-color: #d8cfc0;
-  color: #1f1d1a;
+  border-color: #dedfd8;
+  color: #242824;
   pointer-events: auto;
 }
 
 .ui-review-button--ghost:hover {
-  background: #efe7d8;
+  background: #eeefe9;
 }
 
 .ui-review-composer {
-  background: #f6f1e7;
-  border: 1px solid #1f1d1a;
+  background: #faf9f6;
+  border: 1px solid #242824;
   border-radius: 2px;
-  color: #1f1d1a;
+  color: #242824;
   display: flex;
   flex-direction: column;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Avenir Next', Avenir, 'Segoe UI', sans-serif;
   font-size: 13px;
   gap: 10px;
   max-width: calc(100vw - 16px);
-  padding: 14px;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  padding: 18px;
   pointer-events: auto;
   position: fixed;
   width: 320px;
 }
 
 .ui-review-composer__title {
-  color: #6e2130;
+  color: #242824;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   font-weight: 600;
@@ -209,10 +228,10 @@ const OVERLAY_STYLES = `
 }
 
 .ui-review-textarea {
-  background: #fffdf8;
-  border: 1px solid #d8cfc0;
+  background: #ffffff;
+  border: 1px solid #dedfd8;
   border-radius: 2px;
-  color: #1f1d1a;
+  color: #242824;
   font-family: inherit;
   font-size: 13px;
   min-height: 84px;
@@ -223,12 +242,12 @@ const OVERLAY_STYLES = `
 
 .ui-review-textarea:focus-visible,
 .ui-review-select:focus-visible {
-  outline: 2px solid #6e2130;
+  outline: 2px solid #763849;
   outline-offset: 1px;
 }
 
 .ui-review-textarea[aria-invalid='true'] {
-  border-color: #6e2130;
+  border-color: #763849;
 }
 
 .ui-review-fields {
@@ -244,18 +263,18 @@ const OVERLAY_STYLES = `
 }
 
 .ui-review-field__label {
-  color: #8a8175;
+  color: #62685f;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .ui-review-select {
-  background: #fffdf8;
-  border: 1px solid #d8cfc0;
+  background: #ffffff;
+  border: 1px solid #dedfd8;
   border-radius: 2px;
-  color: #1f1d1a;
+  color: #242824;
   font-family: inherit;
   font-size: 12px;
   padding: 6px;
@@ -263,7 +282,7 @@ const OVERLAY_STYLES = `
 }
 
 .ui-review-composer__error {
-  color: #6e2130;
+  color: #763849;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   margin: 0;
@@ -317,6 +336,10 @@ export function mountReviewOverlay(options: ReviewOverlayOptions): ReviewOverlay
   highlight.className = 'ui-review-highlight';
   highlight.dataset['uiReview'] = 'highlight';
   highlight.hidden = true;
+  const targetLabel = doc.createElement('span');
+  targetLabel.className = 'ui-review-target-label';
+  targetLabel.setAttribute('aria-hidden', 'true');
+  highlight.append(targetLabel);
 
   const pinsLayer = doc.createElement('div');
   pinsLayer.className = 'ui-review-pins';
@@ -331,13 +354,13 @@ export function mountReviewOverlay(options: ReviewOverlayOptions): ReviewOverlay
 
   const composerTitle = doc.createElement('h2');
   composerTitle.className = 'ui-review-composer__title';
-  composerTitle.textContent = 'ADD A NOTE';
+  composerTitle.textContent = 'Add a note';
 
   const textarea = doc.createElement('textarea');
   textarea.className = 'ui-review-textarea';
   textarea.setAttribute('aria-label', 'Review note');
   textarea.rows = 4;
-  textarea.placeholder = 'Describe the issue';
+  textarea.placeholder = 'What should change? Be specific about the result you want.';
 
   const errorMessage = doc.createElement('p');
   errorMessage.className = 'ui-review-composer__error';
@@ -377,7 +400,7 @@ export function mountReviewOverlay(options: ReviewOverlayOptions): ReviewOverlay
   cancelButton.dataset['uiReview'] = 'cancel';
   cancelButton.textContent = 'Cancel';
 
-  actions.append(saveButton, cancelButton);
+  actions.append(cancelButton, saveButton);
   composer.append(composerTitle, textarea, errorMessage, fields, actions);
 
   const badge = doc.createElement('div');
@@ -390,7 +413,7 @@ export function mountReviewOverlay(options: ReviewOverlayOptions): ReviewOverlay
 
   const badgeHint = doc.createElement('span');
   badgeHint.className = 'ui-review-badge__hint';
-  badgeHint.textContent = 'Shift+Escape to stop';
+  badgeHint.textContent = 'Click to pin · Shift+Escape to stop';
 
   const exitButton = doc.createElement('button');
   exitButton.type = 'button';
@@ -465,6 +488,8 @@ export function mountReviewOverlay(options: ReviewOverlayOptions): ReviewOverlay
     highlight.style.top = `${box.top}px`;
     highlight.style.width = `${Math.max(0, box.width)}px`;
     highlight.style.height = `${Math.max(0, box.height)}px`;
+    targetLabel.textContent = element.tagName.toLowerCase();
+    targetLabel.style.top = box.top < 28 ? '0' : '-25px';
     highlight.hidden = false;
   }
 

@@ -1,53 +1,63 @@
-# Direction design — UI Review
+# UI Review — a working notebook
 
-## Lead validé : « Editorial margin notes »
+The extension helps a reviewer turn observations into an actionable brief. Its primary
+sequence is **start → click an element → write a note → copy the agent brief**.
+The design evolves the original editorial margin direction into a quieter, practical tool.
+Light paper, fine rules and numbered notes remain; session administration recedes.
 
-Référence visuelle : `docs/design/sidebar-b-editorial.png` (direction retenue).
-Explorations conservées pour itération ultérieure : `sidebar-a-rail.png` (rail spatial),
-`sidebar-c-console.png` (console sombre).
+Current reference: [active review](evidence/after-active.png),
+[first use](evidence/after-empty.png), [page composer](evidence/after-overlay-composer.png).
+The previous direction is retained in `sidebar-b-editorial.png` for historical reference.
 
-Principe : le side panel se lit comme la **marge annotée d'un document imprimé**, pas comme un
-dashboard. Papier crème, filets fins à la place des cartes, gros index numérotés, hiérarchie
-typographique forte, preuves présentées comme des planches légendées.
+## Hierarchy
 
-Cette direction est un **lead**, pas une spec pixel-perfect : elle sera itérée plus tard. Tout
-ticket UI doit s'y conformer en esprit (voir règles ci-dessous).
+- A compact masthead identifies the tool and local persistence.
+- The current page and annotation status stay together; Stop is a secondary action.
+- The selected review is named explicitly, including when it differs from the current tab.
+- Notes are the main content. Numbers match page pins; text is readable sans serif.
+- Each note exposes its anchor and actions. Evidence and technical context use native
+  disclosures; screenshot failures remain visible even when the disclosure is closed.
+- Session settings and stored sessions are collapsed by default. Deletion confirmations
+  automatically open their containing disclosure.
+- Copy agent brief stays at the bottom of the viewport. The bridge state is compact;
+  unavailable bridge states retain their recovery instructions and disabled copy action.
+  The handoff block is bounded to 45% of the viewport and scrolls on short screens.
+- First use explains the three steps. Empty and restricted states provide explicit guidance.
 
-## Tokens (cibles)
+## Tokens
 
-| Rôle | Valeur indicative |
+| Role | Value |
 |---|---|
-| Fond papier | `#F6F1E7` (crème chaud) |
-| Encre principale | `#1F1D1A` (quasi noir) |
-| Accent index / marque | `#6E2130` (oxblood) |
-| Action primaire | `#223E5C` (bleu encre) |
-| Succès | `#3E8E5A` |
-| Priorité P2 | `#C97A2B` (ambre) |
-| Filets / séparateurs | `#D8CFC0` |
-| Méta / texte discret | `#8A8175` |
+| Paper | `#faf9f6` |
+| Ink | `#242824` |
+| Primary action / focus | `#294d42` |
+| Action hover | `#1c392f` |
+| Note index / destructive action | `#763849` |
+| Muted text | `#62685f` |
+| Rule | `#dedfd8` |
+| Input border | `#b8beb3` |
 
-Typo : titres en serif éditorial (empiler une serif système ou embarquée légère :
-Iowan Old Style / Palatino / Georgia), corps en sans système, métadonnées en monospace
-capitales espacées.
+Headings use Iowan Old Style / Palatino / Georgia; prose and controls use Avenir Next /
+Avenir / Segoe UI; small technical labels use SFMono-Regular / Consolas. No remote fonts.
+Main text is 14px with generous line height. Metadata is compact, with limited uppercase.
+Controls use 4px corners in the panel and 2px on the overlay. No gradients or heavy shadows.
 
-## Composants
+## Interaction and accessibility
 
-- **Ligne de commentaire** : grand numéro d'index (01, 02…), titre serif, corps, ligne méta
-  `CATÉGORIE · P1|P2|P3`, miniature de preuve optionnelle. Séparées par des filets 1 px,
-  pas de cartes flottantes.
-- **Preuves** : planches légendées `Fig. 1 · Viewport`, `Fig. 2 · Element crop`, avec
-  suppression indépendante.
-- **Composer** : `ADD A NOTE`, champ principal, selects catégorie/priorité, action
-  `Save note` (bleu encre).
-- **Badge de confiance** : pastille discrète, honnête (`React context: best effort`).
-- **Footer** : `Copy brief` bien visible + mention artefacts locaux/temporaires.
+- Use native buttons, labels and disclosures; all controls have visible focus.
+- Preserve open disclosures, dirty edit fields, text selection and focused controls across
+  same-session refreshes. Do not transfer drafts into a different session.
+- Focus the note editor when editing begins. Focus deletion confirmation once on entry;
+  background refreshes must not pull focus away from the user's chosen confirmation action.
+- Custom inline validation handles blank text consistently (`novalidate` on forms).
+- Reserve screenshot dimensions from the read model before lazy images load.
+- Page overlay colors and type match the panel. Hover labels identify the element tag.
+  The composer fits within the viewport and scrolls vertically when necessary.
+- Preserve Escape, Shift+Escape and Ctrl/Cmd+Enter behavior. Page click capture and the
+  domain lifecycle are unchanged by this design work.
 
-## Règles
+## Verification
 
-- Interdit : dégradés, glassmorphism, ombres lourdes, coins très arrondis (radius max 2-4 px),
-  emoji, look dashboard/Bootstrap/Material générique, lorem ipsum.
-- Filets et alignement strict plutôt que bordures épaisses et élévation.
-- Une seule signification par accent couleur (ambre = priorité, vert = succès, oxblood = index).
-- Accessibilité : contraste AA, focus visibles, tout au clavier (acceptance criteria du projet).
-- Textes d'interface en **anglais** ; code, docs et commentaires en anglais également.
-- Reste implémentable en side panel Chrome sans framework UI lourd.
+See [refonte evidence](REFONTE-EVIDENCE.md). Development-only fixtures live under
+`tests/fixtures/`; they render the real view/overlay with deterministic sample data and
+are not extension entry points. These captures validate layout, not native bridge transport.

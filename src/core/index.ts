@@ -176,6 +176,7 @@ export {
   renameSession,
   sortSessionsByRecency,
   stopSession,
+  setSessionPaused,
   type CreateReviewSessionInput,
   type ReviewSession,
   type SessionStatus,
@@ -239,6 +240,7 @@ export {
   type StopReviewSessionDeps,
   type StopReviewSessionResult,
 } from './usecases/session-lifecycle';
+export { setReviewPaused, type SetReviewPausedResult } from './usecases/set-review-paused';
 
 export {
   addReviewComment,

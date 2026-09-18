@@ -61,7 +61,7 @@ export async function addReviewComment(
   if (session === null) {
     return { ok: false, reason: 'session-not-found', sessionId: input.sessionId };
   }
-  if (session.status !== 'active') {
+  if (session.status !== 'active' || session.annotationPaused === true) {
     return { ok: false, reason: 'session-not-active', sessionId: input.sessionId };
   }
   if (session.pageUrl !== input.pageUrl) {

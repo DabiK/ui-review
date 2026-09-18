@@ -35,6 +35,7 @@ let editingCommentId: string | null = null;
 let pendingDeleteCommentId: string | null = null;
 let pendingDeleteAttachmentId: string | null = null;
 let notice: string | null = null;
+let pausePending = false;
 
 type StartFailure = Extract<StartReviewSessionResult, { ok: false }>;
 type StopFailure = Extract<StopReviewSessionResult, { ok: false }>;
@@ -133,6 +134,8 @@ function viewOptions(): ReviewPanelViewOptions {
     pendingDeleteCommentId,
     pendingDeleteAttachmentId,
     notice,
+    pausePending,
+    onSetReviewPaused: (sessionId, paused) => setPaused(sessionId, paused),
     onRefresh: () => refreshPanel(),
     onStartReview: () => startReview(),
     onStopReview: (sessionId) => stopReview(sessionId),
@@ -292,6 +295,26 @@ function stopReview(sessionId: string): void {
   });
 }
 
+function setPaused(sessionId: string, paused: boolean): void {
+  if (pausePending) return;
+  pausePending = true;
+  render();
+  void runAction(async () => {
+    try {
+      const result = await container.setReviewPaused(sessionId, paused);
+      if (!result.ok) {
+        if (result.reason === 'page-mismatch') return 'Open the saved page URL before resuming this review.';
+        return result.reason === 'session-stopped' ? 'This review has ended. Start a new review to add notes.' : 'That session no longer exists.';
+      }
+      container.syncPageOverlay(result.session.pageUrl);
+      container.notifyPanelChanged();
+      return paused ? 'Review paused. You can navigate normally; your notes are saved.' : 'Review resumed. Click an element to add a note.';
+    } finally {
+      pausePending = false;
+    }
+  });
+}
+
 function renameSession(sessionId: string, name: string): void {
   void runAction(async () => {
     const result = await container.renameReviewSession(sessionId, name);
@@ -373,3 +396,6 @@ container.subscribeToReviewChanges(() => {
 });
 
 void load();
+
+// Refresh page context when the reviewer returns from browsing in the inspected tab.
+window.addEventListener('focus', () => { void load(); });

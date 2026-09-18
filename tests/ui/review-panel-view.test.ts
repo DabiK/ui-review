@@ -100,6 +100,128 @@ function findButton(root: HTMLElement, label: string): HTMLButtonElement {
 }
 
 describe('renderReviewPanel', () => {
+  it('pauses and resumes the current review without starting a new session', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const onSetReviewPaused = vi.fn();
+    const onStartReview = vi.fn();
+    renderReviewPanel(root, makePanel({ currentSession: session, selectedSession: session }), { onSetReviewPaused, onStartReview });
+    findButton(root, 'Pause review').click();
+    expect(onSetReviewPaused).toHaveBeenCalledWith(session.id, true);
+    const paused = { ...session, annotationPaused: true };
+    renderReviewPanel(root, makePanel({ currentSession: paused, selectedSession: paused, sessions: [paused] }), { onSetReviewPaused, onStartReview });
+    expect(root.textContent).toContain('Review paused');
+    expect(root.textContent).toContain('Browse freely.');
+    findButton(root, 'Resume review').click();
+    expect(onSetReviewPaused).toHaveBeenLastCalledWith(session.id, false);
+    expect(onStartReview).not.toHaveBeenCalled();
+  });
+
+  it('shows the full saved URL as a safe link outside the session selection button', () => {
+    const root = document.createElement('div');
+    const session = makeSession({ pageUrl: 'https://example.com/pricing?plan=team#details' });
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session] }));
+    const link = root.querySelector<HTMLAnchorElement>('.session-entry a')!;
+    expect(link.href).toBe(session.pageUrl);
+    expect(link.textContent).toBe(session.pageUrl);
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toBe('noopener noreferrer');
+    expect(link.closest('button')).toBeNull();
+    expect(root.querySelector<HTMLAnchorElement>('.review-heading a')?.href).toBe(session.pageUrl);
+  });
+
+  it('does not make unsupported saved URL schemes clickable', () => {
+    const root = document.createElement('div');
+    const session = makeSession({ pageUrl: 'javascript:alert(1)' });
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session] }));
+    expect(root.querySelector('.saved-page-link[href]')).toBeNull();
+  });
+
+  it('puts notes before settings, collapses evidence and preserves disclosure state', () => {
+    const root = document.createElement('div');
+    const session = makeSession({ commentCount: 1 });
+    const state = makePanel({ selectedSession: session, currentSession: session, comments: [makeComment()] });
+    renderReviewPanel(root, state);
+    expect(root.querySelector('.notes-section')?.compareDocumentPosition(root.querySelector('.session-settings')!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const evidence = root.querySelector<HTMLDetailsElement>('.comment__evidence')!;
+    expect(evidence.open).toBe(false);
+    evidence.open = true;
+    renderReviewPanel(root, state);
+    expect(root.querySelector<HTMLDetailsElement>('.comment__evidence')?.open).toBe(true);
+    expect(root.querySelector('.panel')?.lastElementChild?.className).toBe('handoff');
+  });
+
+  it('keeps an unsaved edit, selection and keyboard focus during a live refresh', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const session = makeSession();
+    const state = makePanel({ selectedSession: session, comments: [makeComment()] });
+    const options = { editingCommentId: 'comment-1' };
+    renderReviewPanel(root, state, options);
+    const textarea = root.querySelector<HTMLTextAreaElement>('textarea')!;
+    textarea.value = 'My unfinished change';
+    textarea.focus();
+    textarea.setSelectionRange(3, 7);
+    root.querySelector<HTMLSelectElement>('#comment-priority-select')!.value = 'critical';
+    renderReviewPanel(root, state, options);
+    const next = root.querySelector<HTMLTextAreaElement>('textarea')!;
+    expect(document.activeElement).toBe(next);
+    expect(next.value).toBe('My unfinished change');
+    expect(next.selectionStart).toBe(3);
+    expect(next.selectionEnd).toBe(7);
+    expect(root.querySelector<HTMLSelectElement>('#comment-priority-select')?.value).toBe('critical');
+    expect(root.querySelector<HTMLFormElement>('.comment-form')?.noValidate).toBe(true);
+    root.remove();
+  });
+
+  it('does not carry draft fields or open evidence into another session', () => {
+    const root = document.createElement('div');
+    const state = makePanel({ selectedSession: makeSession(), comments: [makeComment()] });
+    renderReviewPanel(root, state, { editingCommentId: 'comment-1' });
+    root.querySelector<HTMLTextAreaElement>('textarea')!.value = 'Unrelated draft';
+    renderReviewPanel(root, { ...state, selectedSession: makeSession({ id: 'other' }) }, { editingCommentId: 'comment-1' });
+    expect(root.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(makeComment().text);
+  });
+
+  it('preserves a rename draft after tabbing to its submit button', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const state = makePanel({ selectedSession: makeSession() });
+    renderReviewPanel(root, state);
+    root.querySelector<HTMLDetailsElement>('.session-settings')!.open = true;
+    root.querySelector<HTMLInputElement>('#session-name-input')!.value = 'Unfinished name';
+    findButton(root, 'Rename').focus();
+    renderReviewPanel(root, state);
+    expect(root.querySelector<HTMLInputElement>('#session-name-input')?.value).toBe('Unfinished name');
+    expect(document.activeElement).toBe(findButton(root, 'Rename'));
+    root.remove();
+  });
+
+  it('does not move focus back to deletion while a confirmation is already open', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const state = makePanel({ selectedSession: makeSession(), comments: [makeComment()] });
+    const options = { pendingDeleteCommentId: 'comment-1' };
+    renderReviewPanel(root, state, options);
+    findButton(root, 'Keep note').focus();
+    renderReviewPanel(root, state, options);
+    expect(document.activeElement).toBe(findButton(root, 'Keep note'));
+    root.remove();
+  });
+
+  it('restores focus after cancelling a confirmation and opens hidden confirmation ancestors', () => {
+    const root = document.createElement('div');
+    document.body.append(root);
+    const session = makeSession();
+    const state = makePanel({ selectedSession: session, comments: [makeComment({ attachments: makeAttachments() })] });
+    renderReviewPanel(root, state, { pendingDeleteAttachmentId: 'attachment-crop' });
+    expect(root.querySelector<HTMLDetailsElement>('.comment__evidence')?.open).toBe(true);
+    expect(document.activeElement).toBe(findButton(root, 'Delete screenshot permanently'));
+    renderReviewPanel(root, state);
+    expect(root.contains(document.activeElement)).toBe(true);
+    root.remove();
+  });
+
   it('renders the empty state with an explicit start action', () => {
     const root = document.createElement('div');
     const onStartReview = vi.fn();
@@ -107,10 +229,11 @@ describe('renderReviewPanel', () => {
     renderReviewPanel(root, makePanel(), { onStartReview });
 
     expect(root.querySelector('h1')?.textContent).toBe('UI Review');
-    expect(root.textContent).toContain('v0.1.0');
+    expect(root.querySelector('.masthead')?.getAttribute('title')).toContain('v0.1.0');
     expect(root.textContent).toContain('No sessions stored yet.');
-    expect(root.textContent).toContain('No session selected.');
-    expect(root.textContent).toContain('Select a session to read its notes.');
+    expect(root.querySelectorAll('.welcome__step')).toHaveLength(3);
+    expect(root.textContent).toContain('Click an element and describe the change.');
+    expect(root.querySelector('.session-settings')).toBeNull();
 
     const start = findButton(root, 'Start review');
     expect(start.disabled).toBe(false);
@@ -423,6 +546,8 @@ describe('renderReviewPanel', () => {
       'Fig. 2 · Element crop',
     );
     expect(figures[0]?.querySelector('img')?.getAttribute('src')).toBe(TINY_PNG);
+    expect(figures[0]?.querySelector('img')?.width).toBe(1440);
+    expect(figures[0]?.querySelector('img')?.height).toBe(900);
     expect(figures[0]?.querySelector('img')?.getAttribute('alt')).toBe(
       'Viewport screenshot for note 01',
     );
@@ -731,8 +856,8 @@ describe('renderReviewPanel', () => {
 
     const copy = findButton(root, 'Copy agent brief');
     expect(copy.disabled).toBe(false);
-    expect(root.textContent).toContain('temporary per-session folder');
-    expect(root.textContent).toContain('review.json');
+    expect(root.textContent).toContain('temporary local folder');
+    expect(root.textContent).toContain('Paste into your coding agent.');
 
     copy.click();
     expect(onExportHandoff).toHaveBeenCalledWith('session-1');

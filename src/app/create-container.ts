@@ -13,6 +13,7 @@ import {
   renameReviewSession,
   startReviewSession,
   stopReviewSession,
+  setReviewPaused,
   storeSessionArtifact,
   updateReviewComment,
   type AddReviewCommentInput,
@@ -38,6 +39,7 @@ import {
   type SessionId,
   type StartReviewSessionResult,
   type StopReviewSessionResult,
+  type SetReviewPausedResult,
   type UpdateReviewCommentInput,
   type UpdateReviewCommentResult,
 } from '@core';
@@ -62,6 +64,7 @@ export interface AppContainer extends ReviewChangeBroadcaster {
   loadReviewPanel(input?: LoadReviewPanelInput): Promise<ReviewPanelState>;
   startReviewSession(): Promise<StartReviewSessionResult>;
   stopReviewSession(sessionId: SessionId): Promise<StopReviewSessionResult>;
+  setReviewPaused(sessionId: SessionId, paused: boolean): Promise<SetReviewPausedResult>;
   renameReviewSession(sessionId: SessionId, name: string): Promise<RenameReviewSessionResult>;
   clearReviewSession(sessionId: SessionId): Promise<ClearReviewSessionResult>;
   loadOverlayState(pageUrl: string): Promise<OverlayState>;
@@ -99,6 +102,7 @@ export function createAppContainer(): AppContainer {
     loadReviewPanel: (input) => loadReviewPanel({ sessions, pages, runtimeInfo }, input),
     startReviewSession: () => startReviewSession({ sessions, pages, clock, ids }),
     stopReviewSession: (sessionId) => stopReviewSession({ sessions, clock }, { sessionId }),
+    setReviewPaused: (sessionId, paused) => setReviewPaused({ sessions, pages }, { sessionId, paused }),
     renameReviewSession: (sessionId, name) =>
       renameReviewSession({ sessions }, { sessionId, name }),
     clearReviewSession: (sessionId) => clearReviewSession({ sessions }, { sessionId }),

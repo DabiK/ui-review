@@ -88,6 +88,7 @@ const harness = vi.hoisted(() => {
       reason: 'session-not-found',
       sessionId: 'session-1',
     }),
+    setReviewPaused: async () => ({ ok: false, reason: 'session-not-found' }),
     renameReviewSession: async () => ({
       ok: false,
       reason: 'session-not-found',
@@ -133,6 +134,12 @@ const harness = vi.hoisted(() => {
       message: 'The bridge is not part of this UI test.',
       code: null,
     }),
+    loadBridgeSetup: async () => ({
+      kind: 'ready',
+      bridgeVersion: '0.1.0',
+      platform: 'darwin',
+      artifactRoot: '/root',
+    }),
     storeSessionArtifact: async () => ({
       ok: false,
       reason: 'bridge-unavailable',
@@ -166,13 +173,21 @@ const harness = vi.hoisted(() => {
     subscribeToReviewChanges: () => () => undefined,
   };
 
-  return { container, comment, clearedSessions, syncedPages, exportedSessions, deletedAttachments, reset: () => {
-    cleared = false;
-    clearedSessions.length = 0;
-    syncedPages.length = 0;
-    exportedSessions.length = 0;
-    deletedAttachments.length = 0;
-  } };
+  return {
+    container,
+    comment,
+    clearedSessions,
+    syncedPages,
+    exportedSessions,
+    deletedAttachments,
+    reset: () => {
+      cleared = false;
+      clearedSessions.length = 0;
+      syncedPages.length = 0;
+      exportedSessions.length = 0;
+      deletedAttachments.length = 0;
+    },
+  };
 });
 
 vi.mock('@app', () => ({ createAppContainer: () => harness.container }));
@@ -245,4 +260,5 @@ describe('side panel review actions', () => {
       );
     });
   });
+
 });
