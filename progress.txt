@@ -214,10 +214,11 @@ Livré :
   horodatage), édition inline (textarea + selects, texte requis) et suppression en deux étapes
   avec focus déplacé ; section des sessions passée à `04`. Le panneau se recharge
   automatiquement quand la page crée un commentaire.
-- Tests : 22 fichiers / 154 tests, dont `review-comments`, `load-overlay-state`,
+- Tests : 22 fichiers / 155 tests, dont `review-comments`, `load-overlay-state`,
   `comment-round-trip` (routeur réel + use cases réels + relecture « après reload »),
   `review-message-router` (routeur pur), `in-memory-review-change-bus`, `tests/content/*`
-  (dom-anchor, overlay, bootstrap), vue UI (notes, édition, suppression) et manifest.
+  (dom-anchor, overlay sur fixture HTML simple et sur élément rendu dynamiquement, bootstrap),
+  vue UI (notes, édition, suppression) et manifest.
 
 Décisions :
 

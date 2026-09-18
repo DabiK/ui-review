@@ -316,6 +316,42 @@ describe('mountReviewOverlay', () => {
     expect(replaced[0]?.textContent).toBe('03');
   });
 
+  it('annotates an element rendered after the overlay is mounted', async () => {
+    const { root, onCreateComment } = mountOverlay();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    // Simulates a client-rendered page: the element appears after the overlay mounted.
+    await Promise.resolve();
+    const dynamicButton = document.createElement('button');
+    dynamicButton.textContent = 'Client rendered';
+    container.appendChild(dynamicButton);
+    mockRect(dynamicButton, { x: 30, y: 40, width: 120, height: 36 });
+
+    dynamicButton.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true }));
+    const highlight = requireElement(
+      root.querySelector<HTMLElement>('[data-ui-review="highlight"]'),
+      'highlight',
+    );
+    expect(highlight.hidden).toBe(false);
+    expect(highlight.style.left).toBe('30px');
+
+    clickPageElement(dynamicButton);
+    const textarea = requireElement(root.querySelector('textarea'), 'textarea');
+    textarea.value = 'Rendered late';
+    requireElement(root.querySelector<HTMLButtonElement>('[data-ui-review="save"]'), 'save').click();
+
+    await vi.waitFor(() => {
+      expect(onCreateComment).toHaveBeenCalledTimes(1);
+    });
+
+    const firstCall = onCreateComment.mock.calls[0];
+    if (firstCall === undefined) {
+      throw new Error('onCreateComment was not called');
+    }
+    expect(resolveAnchor(firstCall[0].anchor.fingerprint)).toBe(dynamicButton);
+  });
+
   it('removes the host, stops listening and supports a double unmount', () => {
     const { overlay, root, onCreateComment } = mountOverlay();
     const button = document.createElement('button');
