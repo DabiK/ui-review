@@ -51,7 +51,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Confirm depth and locality: callers must not assemble domain state or know adapter internals.
   >
 
-- [ ] #2 — Start, persist, resume and clear a review session (labels: area:extension, area:ux, blocked)
+- [x] #2 — Start, persist, resume and clear a review session (labels: area:extension, area:ux, blocked)
 
   **Issue #2 — détail complet**
   > # 02 — Start, persist, resume and clear a review session

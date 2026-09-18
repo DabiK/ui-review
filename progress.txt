@@ -42,7 +42,7 @@ de vérité, le détail complet de chaque tâche y est.
 | # | Tâche | Statut |
 |---|-------|--------|
 | 1 | Bootstrap clean architecture + agent workflow | DONE |
-| 2 | Session lifecycle in side panel | TODO |
+| 2 | Session lifecycle in side panel | DONE |
 | 3 | Generic DOM click-to-pin review | TODO |
 | 4 | Evidence capture and privacy controls | TODO |
 | 5 | Native Messaging bridge and artifact store | TODO |
@@ -114,3 +114,55 @@ Action de ce round :
 
 Note pour les agents suivants : ne pas laisser la ligne de commande du prompt reviewer
 apparaître dans la sortie (par ex. via `ps`), le script de boucle y lit un rejet à tort.
+
+### Itération 2 — Issue #2 (start / persister / reprendre / clear une session)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 99 tests / 14 fichiers, build).
+QA visuelle faite sur le side panel construit (états empty, active, stopped, confirm,
+restricted, notice) à 360 px de large via un harnais headless jetable hors dépôt ; supprimé
+après usage.
+
+Livré :
+
+- Cœur : transitions d'état pures (`stopSession`, `renameSession`) + nommage automatique
+  (`buildSessionName` : `hostname — 18 Sep 2026, 10:00` en UTC, déterministe) + éligibilité
+  (`isReviewablePageUrl`) + tri/recherche de session par page (`sortSessionsByRecency`,
+  `findCurrentSessionForPage`).
+- Cœur : use cases `startReviewSession`, `stopReviewSession`, `renameReviewSession`,
+  `clearReviewSession`. Toutes les erreurs attendues sont des résultats typés
+  (`{ ok: false, reason }`), jamais des exceptions : le contrat est testable et l'UI affiche
+  un message explicite (`role="alert"`).
+- Cœur : read model `loadReviewPanel` (remplace `loadWorkspaceStatus`, supprimé avec sa vue
+  et ses tests) : runtime, descripteur de stockage, page active + éligibilité, session
+  courante (active prioritaire, sinon la plus récente arrêtée), liste complète triée.
+- Nouveaux ports, chacun avec deux implémentations réelles et un test de contrat :
+  `ActivePagePort` (`ChromeActivePageAdapter` via `chrome.tabs` /
+  `StaticActivePageAdapter`), `ClockPort` (`SystemClockAdapter` / `FixedClockAdapter`),
+  `IdGeneratorPort` (`CryptoIdGeneratorAdapter` / `SequentialIdGeneratorAdapter`).
+- UI side panel : sections numérotées 01/02/03 (page courante, session sélectionnée, sessions
+  stockées), Start/Stop explicites, renommage inline (form + label), sélection de session,
+  clear en deux étapes avec confirmation et focus déplacé sur le bouton de suppression,
+  états empty/active/stopped/restricted accessibles au clavier. Direction « Editorial margin
+  notes » respectée (filets, index oxblood, serif/sans/mono, pas de cartes).
+- Persistance/reprise : le dépôt IndexedDB existant est utilisé tel quel ; test d'intégration
+  `tests/adapters/session-resume.test.ts` qui écrit avec un jeu d'adaptateurs puis relit avec
+  des instances neuves (simule reload panel/page).
+- Manifest : permission `tabs` ajoutée (lecture URL/titre de l'onglet actif), test manifest
+  mis à jour. Docs `docs/architecture.md` et `README.md` mises à jour.
+
+Décisions :
+
+- Scope de session = URL de page exacte (pas de tabId dans le domaine) : recharger la page ou
+  rouvrir le panneau restaure la session ; naviguer ailleurs laisse la session stockée
+  intacte dans la liste.
+- Une seule session active par page : `startReviewSession` refuse `session-already-active`.
+  Après Stop, un nouveau Start crée une nouvelle session (pas de reprise d'une session
+  arrêtée).
+- La décision de partir d'une page inéligible est dans le cœur (`isReviewablePageUrl`), l'UI
+  ne fait que rendre l'état (bouton désactivé + explication).
+- `chrome.tabs.query({ active: true, lastFocusedWindow: true })` dans l'adaptateur Chrome.
+- Le bouton Refresh reste dans le panneau : pas encore d'abonnement aux événements d'onglets
+  (hors périmètre #2, à traiter dans un ticket UI ultérieur si besoin).
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
+contrat, suivi par l'issue #12.

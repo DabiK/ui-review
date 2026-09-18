@@ -41,7 +41,11 @@ npm run verify   # lint → typecheck → unit tests → build
 
 Load the unpacked extension: run `npm run build`, open `chrome://extensions`, enable
 Developer mode, click **Load unpacked** and select `dist/`. Clicking the toolbar icon opens
-the side panel.
+the side panel. On an http(s) page, **Start review** creates a session named after the
+hostname and timestamp; sessions are stored in the browser profile, survive panel and page
+reloads, can be renamed and stopped, and are only removed — one at a time, after confirmation
+— with **Clear session**. The focused tab URL is read through the `tabs` permission and never
+leaves the machine.
 
 The module map, public interfaces and the dependency rule are documented in
 [`docs/architecture.md`](docs/architecture.md). The agent workflow (one implementation agent

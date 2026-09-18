@@ -166,9 +166,230 @@ body {
   margin: 10px 0 0;
 }
 
-.error {
-  border: 1px solid var(--index);
-  border-left-width: 3px;
+/* Session lifecycle — issue #2. Fine rules, numbered indexes, no cards. */
+
+.page-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+
+.page-host {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
   margin: 0;
+  text-transform: uppercase;
+}
+
+.page-url {
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 10px;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  color: var(--meta);
+  font-family: var(--serif);
+  font-style: italic;
+  margin: 8px 0 0;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.action--ghost {
+  background: transparent;
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.action--ghost:hover {
+  background: #efe7d8;
+  border-color: var(--rule);
+}
+
+.action--danger {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.action--danger:hover {
+  background: var(--ink-strong);
+  border-color: var(--ink-strong);
+}
+
+.action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.status-badge {
+  align-items: center;
+  color: var(--meta);
+  display: inline-flex;
+  font-family: var(--mono);
+  font-size: 10px;
+  gap: 6px;
+  letter-spacing: 0.14em;
+  margin: 10px 0 0;
+  text-transform: uppercase;
+}
+
+.status-badge::before {
+  background: var(--rule);
+  border-radius: 999px;
+  content: '';
+  height: 6px;
+  width: 6px;
+}
+
+.status-badge--active {
+  color: var(--ink);
+}
+
+.status-badge--active::before {
+  background: #3e8e5a;
+}
+
+.field {
+  align-items: flex-end;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.field__label {
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  width: 100%;
+}
+
+.field__input {
+  background: #fffdf8;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  color: var(--ink);
+  flex: 1 1 140px;
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 8px 9px;
+}
+
+.field__input:focus-visible {
+  outline: 2px solid var(--index);
+  outline-offset: 1px;
+}
+
+.field__input[aria-invalid='true'] {
+  border-color: var(--index);
+}
+
+.field__error {
+  color: var(--index);
+  flex-basis: 100%;
+  font-family: var(--mono);
+  font-size: 10px;
+  margin: 0;
+}
+
+.session-list {
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+}
+
+.session-row {
+  align-items: baseline;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 9px 0;
+  text-align: left;
+  width: 100%;
+}
+
+.session-row:hover {
+  background: #efe7d8;
+}
+
+.session-row:focus-visible {
+  outline: 2px solid var(--index);
+  outline-offset: -2px;
+}
+
+.session-row[aria-current='true'] .session-row__index {
+  color: var(--index);
+}
+
+.session-row[aria-current='true'] .session-row__name {
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+.session-row__index {
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  min-width: 18px;
+}
+
+.session-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.session-row__name {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.session-row__meta {
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.confirm {
+  border: 1px solid var(--ink);
+  border-left-width: 3px;
+  margin-top: 14px;
   padding: 10px 12px;
+}
+
+.confirm__question {
+  margin: 0;
+}
+
+.notice {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--index);
+  margin: 16px 0 0;
+  padding: 9px 11px;
 }

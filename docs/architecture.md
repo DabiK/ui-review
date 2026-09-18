@@ -30,15 +30,15 @@ specifier that leaves `src/core`.
 | `src/core/index.ts` | Public barrel — the only entry point for the core | core internals |
 | `src/adapters/persistence/in-memory/` | Ephemeral repository (tests, previews) | `@core` |
 | `src/adapters/persistence/indexeddb/` | Durable repository (browser profile) | `@core` |
-| `src/adapters/runtime/` | Host facts: Chrome runtime, static test double | `@core` |
-| `src/adapters/chrome/` | Chrome integrations (side panel wiring) | — |
+| `src/adapters/runtime/` | Host facts: Chrome runtime, system clock, crypto ids + deterministic doubles | `@core` |
+| `src/adapters/chrome/` | Chrome integrations (side panel wiring, active-tab adapter) | `@core` |
 | `src/app/` | Composition root: adapters → use cases | `@core` + adapters |
 | `src/sidepanel/` | Driving adapter: side-panel view (plain DOM) | `@app` + `@core` types |
 | `src/background/` | MV3 service worker entry point | `@adapters/chrome` |
 | `public/manifest.json` | MV3 manifest, copied to `dist/` at build time | — |
 | `sidepanel.html` | Side-panel document, bundled by Vite | — |
 
-## Public interfaces (foundation, issue #1)
+## Public interfaces
 
 Vocabulary (`src/core/index.ts`):
 
@@ -52,6 +52,9 @@ Vocabulary (`src/core/index.ts`):
   `framework`, `source-map`).
 - `Attachment` — binary artifact (viewport screenshot, element crop) linked to a comment,
   stored inline or as a local artifact path.
+- Session lifecycle helpers (`buildSessionName`, `isReviewablePageUrl`, `stopSession`,
+  `renameSession`, `sortSessionsByRecency`, `findCurrentSessionForPage`) — pure functions the
+  use cases rely on; callers never assemble a transition themselves.
 
 Ports:
 
@@ -59,30 +62,58 @@ Ports:
   Implementations: `InMemoryReviewSessionRepository`, `IndexedDbReviewSessionRepository`.
 - `RuntimeInfoPort` — `read()` returns extension name/version and runtime label.
   Implementations: `ChromeRuntimeInfoAdapter`, `StaticRuntimeInfoAdapter`.
+- `ActivePagePort` — `read()` returns the focused page (url, title) or `null`.
+  Implementations: `ChromeActivePageAdapter` (`chrome.tabs`), `StaticActivePageAdapter`.
+- `ClockPort` — `now()` returns an ISO-8601 UTC timestamp.
+  Implementations: `SystemClockAdapter`, `FixedClockAdapter`.
+- `IdGeneratorPort` — `createId()` returns a fresh id.
+  Implementations: `CryptoIdGeneratorAdapter` (`crypto.randomUUID`),
+  `SequentialIdGeneratorAdapter`.
 
 Use cases:
 
-- `loadWorkspaceStatus()` — read model for the side-panel status view. Takes the two ports,
-  returns counts plus the storage descriptor; the UI learns persistence facts from the
-  descriptor, never from adapter internals.
+- `startReviewSession()` — reads the active page through `ActivePagePort`, refuses missing or
+  non-http(s) pages and an already-active session for the page, then creates, names and
+  persists one active session. Nothing is captured before this call.
+- `stopReviewSession({ sessionId })` — active → stopped transition, persisted.
+- `renameReviewSession({ sessionId, name })` — trims and persists a non-blank name.
+- `clearReviewSession({ sessionId })` — deletes exactly one session (its comments, evidence
+  and attachments are embedded in the aggregate).
+- `loadReviewPanel()` — read model for the side panel: runtime facts, storage descriptor,
+  current page eligibility, the current page's session (active preferred, otherwise the
+  latest stopped) and every stored session as a summary. The UI learns persistence facts from
+  the descriptor, never from adapter internals.
 
-`DomainValidationError` is thrown when a caller tries to assemble invalid state; tests assert
-these invariants through the public barrel only.
+Every expected lifecycle failure is a typed result (`{ ok: false, reason }`) rather than a
+thrown error; `DomainValidationError` is reserved for invalid state assembled by developers
+and is asserted through the public barrel only.
 
 ## Runtime topology
 
 - `service-worker.js` (built from `src/background/service-worker.ts`) attaches the side panel
   to the toolbar action through `chrome.sidePanel.setPanelBehavior`.
-- `sidepanel.html` loads the bundled side panel, which renders the foundation status from
-  `loadWorkspaceStatus()`.
-- Sessions are stored in IndexedDB (`ui-review` database, `review-sessions` store). No data
-  leaves the machine; the native bridge and temporary handoff arrive in later issues.
+- `sidepanel.html` loads the bundled side panel, which renders the session lifecycle from
+  `loadReviewPanel()` and drives `startReviewSession`, `stopReviewSession`,
+  `renameReviewSession` and `clearReviewSession` through the composition root.
+- `Start review` is the only entry point of inspection: the panel itself never captures
+  anything, and ineligible pages (`chrome://`, `file://`, …) get a disabled action with an
+  explanation.
+- Sessions are stored in IndexedDB (`ui-review` database, `review-sessions` store); after a
+  reload the panel restores the current page's session by page URL. No data leaves the
+  machine; the native bridge and temporary handoff arrive in later issues.
+- The `tabs` permission is required so `ChromeActivePageAdapter` can report the focused page
+  URL and title; the core and the UI still never call `chrome.*` directly.
 
 ## Testing strategy
 
 - Core tests import only the `@core` barrel and exercise public behaviour.
 - The same `ReviewSessionRepository` contract test runs against the in-memory and IndexedDB
-  adapters, so the test double cannot drift from the durable store.
+  adapters, so the test double cannot drift from the durable store. `ClockPort`,
+  `IdGeneratorPort` and `ActivePagePort` each have a contract test run against both
+  implementations.
+- `tests/adapters/session-resume.test.ts` writes with one set of adapter instances and reads
+  back with fresh ones, proving the reload/resume acceptance criterion through the real
+  IndexedDB adapter.
 - UI tests run under happy-dom and assert accessible structure, not implementation details.
 - `tests/architecture/core-boundaries.test.ts` guards the dependency rule.
 - `tests/extension/manifest.test.ts` guards the MV3 manifest and its entry points.
@@ -104,4 +135,6 @@ these invariants through the public barrel only.
 1. `npm install && npm run build`
 2. Open `chrome://extensions`, enable **Developer mode**.
 3. **Load unpacked** → select the `dist/` directory.
-4. Click the UI Review toolbar icon: the side panel opens on the "Foundation status" view.
+4. Click the UI Review toolbar icon: the side panel opens on the session panel. Click
+   **Start review** on an http(s) page to create and persist a session, **Stop review** to end
+   it, rename it inline, and **Clear session** (with confirmation) to delete it.

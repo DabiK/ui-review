@@ -43,22 +43,48 @@ export {
 } from './model/review-comment';
 
 export {
+  buildSessionName,
   createReviewSession,
+  findCurrentSessionForPage,
+  formatSessionTimestamp,
+  isReviewablePageUrl,
+  renameSession,
+  sortSessionsByRecency,
+  stopSession,
   type CreateReviewSessionInput,
   type ReviewSession,
   type SessionStatus,
 } from './model/review-session';
 
+export type { ActivePageInfo, ActivePagePort } from './ports/active-page';
+export type { ClockPort } from './ports/clock';
+export type { IdGeneratorPort } from './ports/id-generator';
 export type {
   ReviewSessionRepository,
   StorageDescriptor,
   StorageKind,
 } from './ports/review-session-repository';
-
 export type { RuntimeInfo, RuntimeInfoPort } from './ports/runtime-info';
 
 export {
-  loadWorkspaceStatus,
-  type LoadWorkspaceStatusDeps,
-  type WorkspaceStatus,
-} from './usecases/load-workspace-status';
+  clearReviewSession,
+  renameReviewSession,
+  startReviewSession,
+  stopReviewSession,
+  type ClearReviewSessionDeps,
+  type ClearReviewSessionResult,
+  type RenameReviewSessionDeps,
+  type RenameReviewSessionResult,
+  type StartReviewSessionDeps,
+  type StartReviewSessionResult,
+  type StopReviewSessionDeps,
+  type StopReviewSessionResult,
+} from './usecases/session-lifecycle';
+
+export {
+  loadReviewPanel,
+  type ActivePageSummary,
+  type LoadReviewPanelDeps,
+  type ReviewPanelState,
+  type SessionSummary,
+} from './usecases/load-review-panel';
