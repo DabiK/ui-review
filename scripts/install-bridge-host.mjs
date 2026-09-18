@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const distDir = resolve(root, 'dist');
 const bridgeDir = join(distDir, 'bridge');
-const bundlePath = join(bridgeDir, 'main.js');
+const bundlePath = join(bridgeDir, 'main.cjs');
 const manifestTemplatePath = join(
   root,
   'src',
@@ -76,7 +76,7 @@ function installDirectory(platform) {
 
 function writeRunner(platform, origin) {
   const directory = installDirectory(platform);
-  const installedBundle = join(directory, 'main.js');
+  const installedBundle = join(directory, 'main.cjs');
 
   if (platform === 'win32') {
     const runnerPath = join(directory, 'run-bridge.cmd');
@@ -166,7 +166,7 @@ function uninstallFiles(name) {
 
 function install() {
   if (!existsSync(bundlePath)) {
-    fail('dist/bridge/main.js is missing. Run `npm run build` first.');
+    fail('dist/bridge/main.cjs is missing. Run `npm run build` first.');
   }
 
   const extensionId = readOption(process.argv.slice(3), '--extension-id') ?? computeExtensionId(distDir);
@@ -178,9 +178,9 @@ function install() {
   const origin = `chrome-extension://${extensionId}/`;
   const directory = installDirectory(process.platform);
   mkdirSync(directory, { recursive: true });
-  copyFileSync(bundlePath, join(directory, 'main.js'));
+  copyFileSync(bundlePath, join(directory, 'main.cjs'));
   if (existsSync(`${bundlePath}.map`)) {
-    copyFileSync(`${bundlePath}.map`, join(directory, 'main.js.map'));
+    copyFileSync(`${bundlePath}.map`, join(directory, 'main.cjs.map'));
   }
   const runnerPath = writeRunner(process.platform, origin);
   const hostManifest = { ...template, path: runnerPath, allowed_origins: [origin] };

@@ -160,9 +160,15 @@ beforeAll(async () => {
       target: 'node20',
       minify: false,
       sourcemap: false,
+      rolldownOptions: {
+        output: {
+          format: 'cjs',
+          entryFileNames: 'main.cjs',
+        },
+      },
     },
   });
-  bundlePath = join(buildDir, 'main.js');
+  bundlePath = join(buildDir, 'main.cjs');
 }, 120_000);
 
 afterAll(async () => {

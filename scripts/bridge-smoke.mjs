@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Diagnostics for the built native bridge: spawns `dist/bridge/main.js`, speaks the real
- * Native Messaging framing and asserts a health check, a write/read artifact round trip and
- * an agent handoff materialization in throwaway roots. Run `npm run build` first.
+ * Diagnostics for a built native bridge: spawns `dist/bridge/main.cjs` (or the standalone
+ * executable passed through `--binary`), speaks the real Native Messaging framing and asserts
+ * a health check, a write/read artifact round trip and an agent handoff materialization in
+ * throwaway roots. Run `npm run build` first.
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -11,10 +12,23 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const bundlePath = resolve(root, 'dist', 'bridge', 'main.js');
+const bundlePath = resolve(root, 'dist', 'bridge', 'main.cjs');
 
-if (!existsSync(bundlePath)) {
-  console.error('[ui-review] dist/bridge/main.js is missing. Run `npm run build` first.');
+/** `--binary <path>` smoke-tests a packaged standalone build instead of the dev bundle. */
+function readBinaryOption() {
+  const index = process.argv.indexOf('--binary');
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+const standalonePath = readBinaryOption();
+const executablePath = standalonePath ?? bundlePath;
+
+if (standalonePath === undefined && !existsSync(bundlePath)) {
+  console.error('[ui-review] dist/bridge/main.cjs is missing. Run `npm run build` first.');
+  process.exit(1);
+}
+if (standalonePath !== undefined && !existsSync(standalonePath)) {
+  console.error(`[ui-review] the bridge binary ${standalonePath} does not exist.`);
   process.exit(1);
 }
 
@@ -67,15 +81,26 @@ let buffer = Buffer.alloc(0);
 const pending = [];
 const waiters = [];
 
-const child = spawn(process.execPath, [bundlePath], {
-  env: {
-    ...process.env,
-    UI_REVIEW_BRIDGE_ALLOWED_ORIGINS: origin,
-    UI_REVIEW_BRIDGE_DATA_ROOT: dataRoot,
-    UI_REVIEW_BRIDGE_HANDOFF_ROOT: handoffRoot,
-  },
-  stdio: ['pipe', 'pipe', 'pipe'],
-});
+const child =
+  standalonePath === undefined
+    ? spawn(process.execPath, [executablePath], {
+        env: {
+          ...process.env,
+          UI_REVIEW_BRIDGE_ALLOWED_ORIGINS: origin,
+          UI_REVIEW_BRIDGE_DATA_ROOT: dataRoot,
+          UI_REVIEW_BRIDGE_HANDOFF_ROOT: handoffRoot,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    : spawn(executablePath, [], {
+        env: {
+          ...process.env,
+          UI_REVIEW_BRIDGE_ALLOWED_ORIGINS: origin,
+          UI_REVIEW_BRIDGE_DATA_ROOT: dataRoot,
+          UI_REVIEW_BRIDGE_HANDOFF_ROOT: handoffRoot,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
 child.stderr.on('data', (chunk) => process.stderr.write(chunk));
 child.on('exit', (code) => {
