@@ -47,7 +47,7 @@ de vérité, le détail complet de chaque tâche y est.
 | 4 | Evidence capture and privacy controls | DONE |
 | 5 | Native Messaging bridge and artifact store | DONE |
 | 6 | Copy agent brief and materialize handoff | DONE |
-| 7 | React/Next component context adapter | TODO |
+| 7 | React/Next component context adapter | DONE |
 | 8 | Resolve source maps to source context | TODO |
 | 9 | Vue/Nuxt component context adapter | TODO |
 | 10 | Package native bridge for macOS and Windows | TODO |
@@ -592,3 +592,74 @@ Native Messaging dans le profil ; le harnais a copié le manifeste installé dan
 `<profil>/NativeMessagingHosts/` (limite du harnais, pas du produit). Harnais jetable hors dépôt
 supprimé après usage, hôte désinstallé (`npm run bridge:uninstall`), racine de handoff QA
 supprimée. Issue #6 fermée sur les commits 055aaaf..f72191c.
+
+### Itération 7 — Issue #7 (contexte de composant React/Next best effort)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 53 fichiers / 467 tests, build triple).
+QA réelle Chrome 153 (macOS), extension chargée via CDP `Extensions.loadUnpacked` : 6/6 checks
+(voir ci-dessous).
+
+Livré :
+
+- Cœur : `FrameworkObservation` (framework, nom de composant, chaîne d'ancêtres, confiance)
+  et factory `createFrameworkEvidence()` ; `unavailableFrameworkObservation()` comme valeur
+  neutre explicite. `createEvidence()` valide désormais la confiance et les payloads
+  `framework` (vocabulaire, noms non vides, bornes 120 chars / 8 ancêtres) — la page est une
+  source non fiable, le cœur re-borne tout.
+- Cœur : port `ComponentContextPort` (`detect({ tabId, frameId, fingerprint })` →
+  `FrameworkObservation`, jamais d'exception attendue) avec deux implémentations réelles et
+  un contrat partagé : `ChromeComponentContextAdapter` et `FakeComponentContextAdapter`
+  (double scriptable qui enregistre les requêtes).
+- Adaptateur framework `src/adapters/frameworks/react/react-component-context.ts` : détecteur
+  `detectPageComponentContext(fingerprint)` **auto-contenu** (sérialisé par
+  `executeScript`), lecture des fibers React sans importer React
+  (`__reactFiber$`/`__reactInternalInstance$`/`__reactContainer$`), dépliage
+  memo/forwardRef, marche d'ancêtres DOM puis de `fiber.return`, bornes strictes (50 ancêtres
+  DOM, 200 pas fiber, profondeur de wrapper 6, chaîne 8, nom 120), jamais d'exception
+  (getters hostiles, cycles, sélecteur invalide, élément absent).
+- Confiance : `confirmed` (affiché `detected`) uniquement quand des marqueurs de
+  développement React sont observés (`_debugOwner`, `_debugSource`, `_debugInfo`…), `inferred`
+  pour un build de production ou un repli Next.js (`__NEXT_DATA__`), `unavailable` sinon.
+  Aucun nom minifié n'est jamais présenté comme vérité source.
+- Transport : le routeur passe `frameId` (`sender.frameId`) + le fingerprint de l'ancre à
+  `captureCommentEvidence`. Le use case `captureCommentEvidence` (deps + `components`) capture
+  screenshots **et** contexte framework après `addReviewComment` : une seule écriture, une
+  évidence `visual` + une évidence `framework` liées au comment id. Port qui throw ou
+  observation malformée → évidence `unavailable` explicite, la note survit toujours.
+- Lecture/UI : `loadReviewPanel` expose `frameworkEvidence` par commentaire ; le panneau
+  affiche une ligne discrète monospace `React context: detected — PricingCard` /
+  `… inferred — … (best effort)` / `Framework context: unavailable`, style « Editorial margin
+  notes » (filet `--rule`, pas de couleur de revendication). Le brief Markdown rend
+  `Framework context: unavailable` au lieu d'inventer « unknown component ».
+- Manifest : permission `scripting` (exécution MAIN world à la demande uniquement), test mis
+  à jour ; docs `docs/architecture.md` + `README.md`.
+
+Décision structurante — pourquoi le monde MAIN :
+
+- Les fibers React sont des propriétés JS posées par la page : un content script (monde
+  isolé) ne les voit **jamais**, même si le DOM est partagé. La première implémentation
+  (détection dans `src/content/`) était donc fausse en vrai Chrome ; elle a été remplacée
+  avant commit par une exécution à la demande dans le monde page
+  (`chrome.scripting.executeScript({ world: 'MAIN', func, args })`), déclenchée seulement
+  après qu'une session active a accepté la note (aucune injection ni inspection avant
+  `Start review`). Le résultat traverse la frontière page→extension, il est donc re-validé
+  (vocabulaire + forme) dans l'adaptateur Chrome avant d'entrer dans le cœur.
+- Le détecteur doit rester entièrement auto-contenu (pas d'import, pas de closure) : il vit
+  dans `src/adapters/frameworks/react/` et le bundle construit a été inspecté pour vérifier
+  qu'il ne référence aucun helper externe.
+
+QA réelle Chrome 153 (harnais CDP jetable hors dépôt, supprimé après usage) :
+
+- Fixture React servie en local avec une arborescence de fibers de dev posée par la page
+  (`_debugOwner`/`_debugSource`, `App > PricingPage > PricingCard`) ; fixture HTML simple.
+- Extension réellement chargée (`Extensions.loadUnpacked`, ID identique aux itérations
+  précédentes), session démarrée depuis le vrai panneau, clic réel sur le bouton, composer
+  rempli, sauvegarde.
+- Panneau : `React context: detected — PricingCard` ; IndexedDB réel relu : évidence
+  `framework` `confidence: confirmed`, `componentName: PricingCard`,
+  `componentChain: ['App','PricingPage','PricingCard']`.
+- Page simple : note créée normalement avec `Framework context: unavailable` explicite.
+- 6/6 checks passés.
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
+contrat (issue #12). Issue #7 fermée sur les commits 27fa8ff..916c6ff.

@@ -218,7 +218,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Use a separate agent to validate the generated brief against a realistic coding-agent handoff, not just string snapshots.
   >
 
-- [ ] #7 — Detect React and Next.js component context as best effort (labels: area:extension, area:adapters, blocked)
+- [x] #7 — Detect React and Next.js component context as best effort (labels: area:extension, area:adapters, blocked)
 
   **Issue #7 — détail complet**
   > # 07 — Detect React and Next.js component context as best effort
