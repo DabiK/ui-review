@@ -48,7 +48,7 @@ de vérité, le détail complet de chaque tâche y est.
 | 5 | Native Messaging bridge and artifact store | DONE |
 | 6 | Copy agent brief and materialize handoff | DONE |
 | 7 | React/Next component context adapter | DONE |
-| 8 | Resolve source maps to source context | TODO |
+| 8 | Resolve source maps to source context | DONE |
 | 9 | Vue/Nuxt component context adapter | TODO |
 | 10 | Package native bridge for macOS and Windows | TODO |
 | 11 | Validate the full review-to-agent experience | TODO |
@@ -663,3 +663,90 @@ QA réelle Chrome 153 (harnais CDP jetable hors dépôt, supprimé après usage)
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
 contrat (issue #12). Issue #7 fermée sur les commits 27fa8ff..916c6ff.
+
+## Ops — reprise du 18/09 21:5x
+
+- Review #7 conclue APPROVED (voir reviews.log 21:12) puis faux positif du script (marqueur REJECTED dans un listing ps) et crash SIGPIPE (sed | head sous pipefail) : boucle morte à 21:12.
+- Script global patché (verdict = dernier marqueur, extraction feedback sans head), APPROVED_STATE repositionné à HEAD (#7 approuvé), boucle relancée avec 8 itérations.
+
+### Itération 8 — Issue #8 (contexte source-map avec confiance explicite)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 526 tests / 57 fichiers, build triple).
+QA réelle Chrome 153 (macOS), extension chargée via CDP `Extensions.loadUnpacked` : 10/10
+checks.
+
+Livré :
+
+- Cœur : `SourceReference` (fileName/line/column 1-based) ajouté à `FrameworkObservation` ;
+  l'adaptateur React lit `_debugSource` dans le monde MAIN (getter hostile toléré) et le
+  transmet brut, sans confiance.
+- Cœur : `SourceMapObservation` + `unavailableSourceMapObservation(reason)` +
+  `createSourceMapEvidence()` ; `createEvidence()` valide les payloads `source-map` (bornes
+  512/240, entiers positifs, fichier tronqué) et les invariants croisés : `unavailable` exige
+  une raison et interdit un fichier, `inferred` exige une raison explicative.
+- Cœur `src/core/source-maps/` (pur, aucune I/O) : `findSourceMappingUrl` (dernière
+  occurrence, `//#`, `//@`, bloc), `decodeInlineSourceMap` (base64 canonique via le codec
+  partagé + data-URL URL-encodée), `parseSourceMapDocument` (v3 strict, bornes,
+  `sourcesContent` volontairement ignoré), `resolveSourceMapPosition` (décodage VLQ maison,
+  plus grande mapping ≤ position, `null` explicite sur entrée corrompue) et
+  `isDirectSourceReference` (extensions source + `webpack-internal:`).
+- Cœur : port `SourceMapContextPort` (`resolve({ pageUrl, reference })` →
+  `mapped`/`unavailable`, jamais d'exception) ; `captureCommentEvidence` résout le contexte
+  après le framework et ajoute une évidence `source-map` liée au comment id :
+  - référence directe (`.tsx`, `.vue`, `webpack-internal:`) → `confirmed`, aucun appel réseau ;
+  - référence compilée → port → `inferred` (« Resolved from the source map of … ») ;
+  - pas de référence / map manquante, invalide, illisible, non mappée / port qui throw /
+    résultat malformé → `unavailable` avec raison explicite.
+  L'ordre d'évidence est `[visual, framework, sourceMap]`.
+- Adaptateurs : `ChromeSourceMapContextAdapter` (fetch extension → fichier compilé →
+  `sourceMappingURL` → map externe ou inline → résolveur pur ; `unavailable` détaillé pour URL
+  non fetchable, credentials refusés, HTTP/parse/position/taille ; limiteurs injectables pour
+  les tests) et `FakeSourceMapContextAdapter` scriptable ; contrat partagé exécuté sur les
+  deux. `ChromeComponentContextAdapter` re-valide `sourceReference` à la frontière
+  page→extension ; `FakeComponentContextAdapter` en fait une copie défensive.
+- Read model/UI : `loadReviewPanel` expose `sourceMapEvidence` ; le panneau affiche
+  `Source map: detected — …`, `Source map: inferred — … (best effort)` ou
+  `Source map: unavailable` (filet `--rule`, mono, pas de couleur de revendication).
+- Brief : la ligne `Source map:` distingue les trois états et inclut la raison pour
+  `inferred`/`unavailable` ; `scripts/bridge-smoke.mjs` envoie désormais une évidence
+  source-map réelle au bridge.
+- Docs : `docs/architecture.md` (payloads, port, résolveur pur, modèle de permission
+  active-review, limites de confiance) et `README.md`.
+
+Décisions :
+
+- Résolution en deux temps : l'adaptateur React fournit la référence brute `_debugSource`
+  (seule source de localisation côté React, monde MAIN) puis le cœur décide (direct vs map) ;
+  l'adaptateur Chrome fait l'I/O. Le cœur ne fetch jamais et les décisions de confiance
+  restent dans le domaine.
+- Une position résolue par une source map est toujours `inferred` : un mapping de bundle
+  prouve une localisation, pas une relation composant→fichier (review focus #8). Une référence
+  de dev directe est `confirmed` (métadonnée React observée, pas une inférence de bundle).
+- Le fetch part du service worker uniquement après `addReviewComment` accepté dans une session
+  active : GET simple, sans credentials ni en-têtes custom, sans serveur local, via la host
+  permission `<all_urls>` déjà accordée. Les octets récupérés ne sont jamais persistés (seuls
+  fichier/ligne/colonne le sont) et `sourcesContent` est ignoré.
+- Le mapping `sources` → origine du projet local est documenté comme fallback ultérieur : la
+  référence brute de la map est conservée telle quelle.
+- Un port qui throw, un résultat malformé ou une observation hors bornes ne coûtent jamais la
+  note : tout devient `unavailable` explicite, comme pour le framework.
+
+QA réelle Chrome 153 (harnais CDP jetable hors dépôt, supprimé après usage) — 10/10 :
+
+- Fixture locale HTTP : trois boutons dont les fibers React de dev portent `_debugSource`
+  (direct `webpack-internal:///./src/PricingCard.tsx:12:4`, compilé
+  `/static/js/bundle.js:2:4`, aucun pour le bouton simple) ; bundle + map `AAAA;IASE;QCTF`
+  servis avec la page et journal de requêtes conservé.
+- Session réelle semée dans l'IndexedDB de l'extension, page rechargée, overlay réel monté,
+  clic réel (CDP `Input.dispatchMouseEvent`) et sauvegarde de la note.
+- Aucune requête `/static/js/bundle.js*` avant la capture ; la note compilée déclenche
+  exactement bundle + map et stocke
+  `{confidence: inferred, sourceFile: '../src/PricingCard.tsx', line: 10, column: 3, reason: 'Resolved from the source map of http://127.0.0.1:8130/static/js/bundle.js.'}`.
+- La note directe est `confirmed` (`webpack-internal:///./src/PricingCard.tsx:12:5`) et
+  n'ajoute aucune requête ; la note sur l'élément simple est `unavailable` avec
+  « No framework source reference was exposed by the page. ».
+- Panneau réel rechargé : les trois lignes `Source map:` sont rendues (detected, inferred
+  (best effort), unavailable).
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
+contrat (issue #12). Issue #8 fermée sur les commits 9facd30..c4b39bc.

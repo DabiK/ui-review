@@ -251,7 +251,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Reject coupling from the core to React internals; component detection must stay inside its adapter.
   >
 
-- [ ] #8 — Resolve source-map context with explicit confidence (labels: area:privacy, area:adapters, blocked)
+- [x] #8 — Resolve source-map context with explicit confidence (labels: area:privacy, area:adapters, blocked)
 
   **Issue #8 — détail complet**
   > # 08 — Resolve source-map context with explicit confidence
