@@ -62,8 +62,11 @@ Vocabulary (`src/core/index.ts`):
   validates the image mime type, dimensions, byte length and storage shape.
 - `src/core/model/redaction.ts` — the privacy gate applied to every DOM payload by
   `createEvidence()`: `value` and secret-like attribute names (`password`, `token`,
-  `secret`, authorization/API keys, session ids…) become `[redacted]`, and credentials or
-  secret query parameters inside URL attributes are stripped before persistence. Adapters
+  `secret`, authorization/API keys, session ids…) become `[redacted]`, and URL attributes
+  (`href`, `src`, …) lose credentials and secret-like parameters before persistence.
+  URL redaction covers absolute http(s) URLs, relative and protocol-relative references,
+  query strings and fragments — including hash routes such as `#/route?access_token=…` —
+  so a value can never leak a secret just because it is not an absolute URL. Adapters
   additionally never read form values; the core gate makes the rule impossible to bypass.
 - Session lifecycle helpers (`buildSessionName`, `isReviewablePageUrl`, `stopSession`,
   `renameSession`, `sortSessionsByRecency`, `findCurrentSessionForPage`) — pure functions the
@@ -207,7 +210,8 @@ domain decision):
   `tests/content/bootstrap.test.ts` proves the content script injects nothing without an
   active session.
 - `tests/core/redaction.test.ts` serializes DOM evidence containing passwords, tokens and
-  credential URLs and asserts none of them survive; `tests/core/capture-comment-evidence.test.ts`
+  credential URLs — absolute, relative and protocol-relative, including fragments — and
+  asserts none of them survive; `tests/core/capture-comment-evidence.test.ts`
   covers the confirmed/inferred/unavailable capture outcomes, the screenshot-to-comment
   linkage, independent attachment deletion and the resilience paths.
 - UI tests run under happy-dom and assert accessible structure, not implementation details.

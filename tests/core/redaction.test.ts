@@ -75,9 +75,56 @@ describe('redactUrlSecrets', () => {
     expect(redacted).toBe('https://example.com/private');
   });
 
-  it('returns non-URL and non-http values unchanged', () => {
+  it('leaves non-URL values, non-http schemes and secret-free references unchanged', () => {
     expect(redactUrlSecrets('Save')).toBe('Save');
-    expect(redactUrlSecrets('/relative?token=abc')).toBe('/relative?token=abc');
+    expect(redactUrlSecrets('mailto:review@example.com?subject=Hello')).toBe(
+      'mailto:review@example.com?subject=Hello',
+    );
+    expect(redactUrlSecrets('/pricing#plans')).toBe('/pricing#plans');
+    expect(redactUrlSecrets('../settings?page=2')).toBe('../settings?page=2');
+  });
+
+  it('redacts secret fragment parameters of absolute URLs', () => {
+    const redacted = redactUrlSecrets(
+      'https://example.com/callback#access_token=abc123&page=2',
+    );
+
+    expect(redacted).toContain('page=2');
+    expect(redacted).not.toContain('abc123');
+  });
+
+  it('redacts secret query parameters inside absolute hash routes', () => {
+    const redacted = redactUrlSecrets('https://app.example.com/#/route?token=abc123&tab=notes');
+
+    expect(redacted).toContain('tab=notes');
+    expect(redacted).not.toContain('abc123');
+  });
+
+  it('redacts secret query parameters of root-relative references', () => {
+    const redacted = redactUrlSecrets('/login?token=abc123&next=/home');
+
+    expect(redacted).toContain('next=');
+    expect(redacted).not.toContain('abc123');
+  });
+
+  it('redacts secret query parameters of protocol-relative references', () => {
+    const redacted = redactUrlSecrets('//cdn.example.com/script.js?api_key=abc123&v=2');
+
+    expect(redacted).toContain('v=2');
+    expect(redacted).not.toContain('abc123');
+  });
+
+  it('redacts relative fragments and strips protocol-relative credentials', () => {
+    const redacted = redactUrlSecrets('//user:hunter2@cdn.example.com/x#access_token=abc123');
+
+    expect(redacted).not.toContain('hunter2');
+    expect(redacted).not.toContain('abc123');
+    expect(redacted).toContain('//cdn.example.com/x');
+  });
+
+  it('redacts fragment-only and query-only references', () => {
+    expect(redactUrlSecrets('#access_token=abc123')).not.toContain('abc123');
+    expect(redactUrlSecrets('?token=abc123')).not.toContain('abc123');
   });
 });
 
@@ -96,6 +143,20 @@ describe('redactAttributes', () => {
       'data-token': REDACTED_VALUE,
       id: 'login',
     });
+  });
+
+  it('redacts secrets inside URL attributes, absolute or not', () => {
+    const redacted = redactAttributes({
+      href: 'https://example.com/callback#access_token=abc123',
+      src: '/reset?token=abc123',
+      action: '//cdn.example.com/script.js?api_key=abc123',
+      id: 'login',
+    });
+
+    expect(redacted['id']).toBe('login');
+    for (const value of Object.values(redacted)) {
+      expect(value).not.toContain('abc123');
+    }
   });
 
   it('never mutates the input record', () => {
@@ -135,6 +196,23 @@ describe('DOM evidence redaction', () => {
     expect(evidence.payload.attributes['href']).not.toContain('abc123');
     expect(JSON.stringify(evidence)).not.toContain('hunter2');
     expect(JSON.stringify(evidence)).not.toContain('sk-live-123');
+  });
+
+  it.each([
+    ['absolute fragment', 'https://example.com/callback#access_token=abs123', 'abs123'],
+    ['relative query', '/reset?token=rel123', 'rel123'],
+    ['protocol-relative query', '//cdn.example.com/script.js?api_key=proto123', 'proto123'],
+  ])('never serializes a secret from a %s URL attribute', (_case, url, secret) => {
+    const evidence = createDomEvidence({
+      id: 'evidence-2',
+      commentId: 'comment-2',
+      capturedAt: '2026-09-18T10:06:00.000Z',
+      anchor: anchor({ href: url, 'data-testid': 'reset' }),
+    });
+
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).toContain('data-testid');
   });
 
   it('keeps every non-secret field intact', () => {

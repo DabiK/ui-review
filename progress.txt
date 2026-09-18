@@ -354,3 +354,40 @@ overlay démonté et clic page de nouveau reçu. Harnais hors dépôt, supprimé
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de contrat
 (issue #12). Issue #4 fermée sur le commit 233d9b7.
+
+### Review round 3 — durcissement de la redaction des URLs (issue #4)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 221 tests / 27 fichiers, build double).
+
+Manque bloquant relevé par la review indépendante : `redactUrlSecrets` ne traitait que les URLs
+absolues http(s). Trois fuites possibles dans l'évidence DOM :
+`https://host/path#access_token=…` (paramètre de fragment), `/path?token=…` (relatif) et
+`//host/path?token=…` (protocol-relative) restaient verbatim, donc un attribut `href`/`src`
+pouvait persister un secret.
+
+Corrigé dans `src/core/model/redaction.ts` :
+
+- URLs absolues http(s) : credentials, query et **fragment** redactés ; un fragment de type
+  hash-route (`#/route?access_token=…`) est scindé pour ne réécrire que sa query.
+- Références relatives (`/path?token=…`, `path?token=…`, `?token=…`, `#token=…`) : fallback
+  textuel sur la query et le fragment (`URLSearchParams`), la forme d'origine est préservée
+  quand rien n'est redacté.
+- Références protocol-relative (`//host/path?token=…`) : credentials `user:pass@` supprimés
+  puis query/fragment redactés textuellement.
+- Schémas non http(s) (`mailto:`, `data:`, `javascript:`) et valeurs non URL : inchangés.
+- `redactAttributes` applique ce gate à toute valeur d'attribut non sensible, donc `href`/`src`
+  ne peuvent plus laisser passer un secret ; `createEvidence()` reste la porte unique.
+
+Tests (`tests/core/redaction.test.ts`, 19 tests) : les trois cas (fragment absolu, relatif,
+protocol-relative) sont couverts via `redactUrlSecrets`, `redactAttributes` et
+`createDomEvidence` avec `JSON.stringify(evidence)` sans le secret ; le test qui affirmait que
+`/relative?token=abc` restait inchangé est remplacé par des assertions de non-fuite, plus un
+test anti-sur-redaction (références sans secret inchangées, `mailto:` intact). Le test
+hash-route absolu et les cas fragment-only/query-only ont été ajoutés.
+
+Docs : `docs/architecture.md` et `README.md` décrivent le périmètre exact (absolues, relatives,
+protocol-relative, query et fragments, hash routes).
+
+Décisions : pas de base URL passée au cœur — le fallback textuel couvre les trois cas sans
+introduire de dépendance au navigateur ni changer les signatures publiques ; le cœur reste pur
+et testable sans DOM.

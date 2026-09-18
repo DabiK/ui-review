@@ -58,7 +58,9 @@ Every saved note also carries local evidence: a curated DOM anchor (fingerprint,
 visible text, role/name, allowlisted attributes, bounding box, viewport, computed styles) and
 two screenshots — the viewport and a crop of the pinned element. Form values are never read,
 and secret-like attributes (`password`, `token`, `secret`, authorization values…) are replaced
-before anything is persisted. The side panel previews both screenshots as numbered plates and
+before anything is persisted. URL attributes (`href`, `src`, …) are redacted too: credentials
+and secret-like keys are masked in query strings and fragments of absolute, relative and
+protocol-relative references (`?token=…`, `#access_token=…`, `#/route?api_key=…`). The side panel previews both screenshots as numbered plates and
 either can be removed independently before handoff. The overlay hides itself while the capture
 runs so the screenshots show the page, not the review chrome; a capture failure leaves the note
 usable with an explicit "Screenshots unavailable" message. `chrome.tabs.captureVisibleTab`
