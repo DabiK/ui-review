@@ -415,6 +415,32 @@ describe('framework evidence in the brief', () => {
     expect(parsed.ok).toBe(true);
   });
 
+  it('serializes a Vue observation with the same schema and labels', () => {
+    const session = sessionWithFramework({
+      framework: 'vue',
+      componentName: 'VueCard',
+      componentChain: ['VuePage', 'VueCard'],
+      confidence: 'inferred',
+      sourceReference: { fileName: 'src/components/VueCard.vue', line: null, column: null },
+    });
+
+    const bundle = buildReviewBrief(session, { generatedAt: GENERATED_AT });
+
+    expect(bundle.brief.comments[0]?.evidence.framework).toEqual({
+      confidence: 'inferred',
+      framework: 'vue',
+      componentName: 'VueCard',
+      componentChain: ['VuePage', 'VueCard'],
+    });
+
+    const markdown = renderReviewBriefMarkdown(bundle.brief, pathsFor());
+    expect(markdown).toContain('Framework evidence: inferred — vue · VueCard');
+    expect(markdown).toContain('Component chain: VuePage > VueCard');
+
+    const parsed = parseReviewBriefDocument(JSON.parse(JSON.stringify(bundle.brief)));
+    expect(parsed.ok).toBe(true);
+  });
+
   it('states an unavailable framework context instead of inventing a component', () => {
     const session = sessionWithFramework({
       framework: 'unknown',

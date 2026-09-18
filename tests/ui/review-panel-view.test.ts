@@ -560,6 +560,41 @@ describe('renderReviewPanel', () => {
     expect(root.textContent).not.toContain('detected');
   });
 
+  it('renders Vue framework evidence with the same confidence labels', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const confirmed = makeComment({
+      id: 'comment-vue-confirmed',
+      frameworkEvidence: {
+        confidence: 'confirmed',
+        framework: 'vue',
+        componentName: 'VueCard',
+        componentChain: ['VuePage', 'VueCard'],
+      },
+    });
+    const inferred = makeComment({
+      id: 'comment-vue-inferred',
+      frameworkEvidence: {
+        confidence: 'inferred',
+        framework: 'vue',
+        componentName: 'Yt',
+        componentChain: ['Yt'],
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({
+        selectedSession: session,
+        sessions: [session],
+        comments: [confirmed, inferred],
+      }),
+    );
+
+    expect(root.textContent).toContain('Vue context: detected — VueCard');
+    expect(root.textContent).toContain('Vue context: inferred — Yt (best effort)');
+  });
+
   it('states an explicit unavailable framework context', () => {
     const root = document.createElement('div');
     const session = makeSession();
