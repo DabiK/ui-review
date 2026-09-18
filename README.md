@@ -89,19 +89,22 @@ the extension declares the `<all_urls>` host permission; screenshots still stay 
 browser profile.
 
 Framework context is a best-effort extra, never a guarantee. React attaches its component
-fibers as JavaScript expandos (`__reactFiber$…`) that an isolated content script cannot see,
-so the service worker injects a self-contained detector into the page's main world on demand
-(`chrome.scripting.executeScript({ world: 'MAIN' })`, `scripting` permission) — only after an
-active session has accepted the note, never before **Start review**. The nearest component
-name and its ancestor chain are stored with an explicit confidence: `detected` only when
-React's development metadata (`_debugOwner`/`_debugSource`) is directly observed, `inferred`
-for production-like or Next.js metadata, `unavailable` when nothing readable exists. The
-panel always shows which of the three applies, and a missing frame, restricted page or
-minified build degrades to an explicit state instead of breaking the annotation. The agent
-brief carries the same context and confidence labels.
+fibers as JavaScript expandos (`__reactFiber$…`), and Vue the rendering component instance
+(`__vueParentComponent` on Vue 3, `__vue__` on Vue 2), none of which an isolated content
+script can see. The service worker therefore injects self-contained React/Next and Vue/Nuxt
+detectors into the page's main world on demand (`chrome.scripting.executeScript({ world:
+'MAIN' })`, `scripting` permission) — only after an active session has accepted the note,
+never before **Start review**. The nearest component name and its ancestor chain are stored
+with an explicit confidence: `detected` only when development metadata is directly observed
+(React `_debugOwner`/`_debugSource`, Vue `__file`/`__hmrId`), `inferred` for production-like
+metadata, a Vue `__vue_app__` root fallback, a `__NUXT__`/`__NEXT_DATA__` payload or a
+minified name, and `unavailable` when nothing readable exists. The panel always shows which
+of the three applies, and a missing frame, restricted page or minified build degrades to an
+explicit state instead of breaking the annotation. The agent brief carries the same context
+and confidence labels.
 
 Source context is resolved only for a reference the framework adapter actually observed. A
-React/Next development reference that already names a source file
+development reference that already names a source file
 (`webpack-internal:///./src/…`, `/src/App.tsx`, `.vue`, `.svelte`, …) is recorded as
 `detected` with no network call. A compiled reference (a `.js` bundle) is fetched with its
 published source map from the service worker — only after an active review accepted the note,

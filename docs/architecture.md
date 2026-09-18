@@ -34,7 +34,7 @@ specifier that leaves `src/core`.
 | `src/adapters/persistence/indexeddb/` | Durable repository (browser profile) | `@core` |
 | `src/adapters/runtime/` | Host facts: Chrome runtime, system clock, crypto ids, Navigator clipboard + deterministic doubles, in-process bridge | `@core` + bridge core |
 | `src/adapters/local-bridge/` | Shared mapping of bridge responses to typed port results | `@core` |
-| `src/adapters/frameworks/` | Framework inspection adapters: self-contained React/Next main-world detector (Vue/Nuxt later) | `@core` types |
+| `src/adapters/frameworks/` | Framework inspection adapters: self-contained React/Next and Vue/Nuxt main-world detectors | `@core` types |
 | `src/adapters/chrome/` | Chrome integrations (side panel wiring, active tab, review transport, change channel, main-world component-context transport, Native Messaging client) | `@core` + `@app` types |
 | `src/app/` | Composition root: adapters → use cases + application gateways | `@core` + adapters |
 | `src/sidepanel/` | Driving adapter: side-panel view (plain DOM) | `@app` + `@core` types |
@@ -166,10 +166,12 @@ Ports:
   the page exposed one. Expected failures (no frame, restricted page, missing metadata) are
   explicit `unavailable` observations, never exceptions. Implementations:
   `ChromeComponentContextAdapter` (runs the self-contained React/Next detector from
-  `src/adapters/frameworks/react/` in the page main world through
-  `chrome.scripting.executeScript({ world: 'MAIN' })` and validates the value that crosses
-  back; needs the `scripting` permission) and `FakeComponentContextAdapter` (scriptable test
-  double that records requests). The shared contract test runs against both.
+  `src/adapters/frameworks/react/` and Vue/Nuxt detector from `src/adapters/frameworks/vue/`
+  in the page main world through `chrome.scripting.executeScript({ world: 'MAIN' })`,
+  validates the values that cross back, and keeps the best one — a detection beats an
+  explicit failure, `confirmed` beats `inferred`, ties keep the detector order; the detector
+  list is injectable; needs the `scripting` permission) and `FakeComponentContextAdapter`
+  (scriptable test double that records requests). The shared contract test runs against both.
 - `SourceMapContextPort` — `resolve({ pageUrl, reference })` turns a compiled framework
   reference into a `SourceMapResolution`: `mapped` (original source file, 1-based line/column
   and a mandatory reason) or `unavailable` with a non-blank reason. Implementations:
@@ -311,18 +313,24 @@ domain decision):
   `OffscreenCanvas` for the element crop scaled from CSS pixels to image pixels). The overlay
   is restored as soon as the save response arrives, so captured images show the page itself.
 - Framework component context is read in the page's **main world**, because React attaches
-  its fiber objects as JavaScript expandos (`__reactFiber$…`) that an isolated content script
-  can never see. The detection function is self-contained, bounded (ancestor, fiber and chain
-  caps), never throws, and is injected on demand by `chrome.scripting.executeScript({
+  its fiber objects as JavaScript expandos (`__reactFiber$…`) and Vue the rendering component
+  instance (`__vueParentComponent`, `__vue__`) as expandos that an isolated content script can
+  never see. The detection functions are self-contained, bounded (ancestor, fiber/instance and
+  chain caps), never throw, and are injected on demand by `chrome.scripting.executeScript({
   world: 'MAIN' })` only after an active session accepted the comment: no page is inspected
-  before `Start review`, and the returned value is re-validated before it enters the core.
+  before `Start review`, and every returned value is re-validated before it enters the core.
   The `scripting` permission is required for that call; a missing frame, a restricted page or
   a minified build degrades to an explicit `unavailable`/`inferred` observation and never
   blocks the note. Development builds are recognised by React's `_debugOwner`/`_debugSource`
-  markers, so a production name is never presented as confirmed source truth.
+  markers and Vue's `__file`/`__hmrId` metadata, so a production name is never presented as
+  confirmed source truth. When no element-level Vue instance is exposed, the detector reports
+  the mounted app root (`__vue_app__`) as an explicit `inferred` best effort; a `__NUXT__`
+  payload is the generic Vue fallback, and a raw `__file` reference is passed along for the
+  source-map step.
 - Source-map resolution follows the same active-review model: the compiled file referenced by
-  `_debugSource` is fetched by the extension only after `addReviewComment` accepted a note in
-  an active session, never on page load or hover. The request is a plain GET from the service
+  the framework development metadata is fetched by the extension only after `addReviewComment`
+  accepted a note in an active session, never on page load or hover. The request is a plain
+  GET from the service
   worker (no credentials, no custom headers, no localhost listener), uses the host permission
   already granted for screenshots, and the fetched bytes are discarded after resolution — only
   the original file reference, line and column are persisted. Missing, unavailable, invalid or
@@ -444,9 +452,16 @@ domain decision):
   `confirmed`, production-like fibers stay `inferred`, plain pages and anonymous fibers are
   explicit `unavailable`/named-less outcomes, Next.js falls back to `__NEXT_DATA__`, and
   memo/forwardRef, hostile getters, cyclic chains, missing elements and length caps never
-  throw. `tests/core/framework-evidence.test.ts` guards the evidence factory (vocabulary,
+  throw. `tests/adapters/vue-component-context.test.ts` runs the same exercise for the Vue
+  detector: development `__file`/`__name` metadata yields the nearest component and chain as
+  `confirmed`, production-like options stay `inferred`, Vue 2 `__vue__`/`$options` and `$parent`
+  work, the mounted app root and `__NUXT__` are explicit `inferred` fallbacks, and hostile
+  getters, an anonymous instance, cyclic chains, missing elements and length caps never throw.
+  `tests/adapters/chrome-component-context.test.ts` proves the transport injects every
+  detector, validates each result and keeps the best observation.
+  `tests/core/framework-evidence.test.ts` guards the evidence factory (vocabulary,
   blank names, bounds) and `tests/ui/review-panel-view.test.ts` proves `inferred` is never
-  labelled as detected.
+  labelled as detected for either framework.
 - `tests/core/source-map-resolver.test.ts` covers the pure resolver against a hand-built VLQ
   fixture (known compiled position → expected file/line, greatest-mapping lookup, generated-only
   and malformed segments, unmapped positions, inline base64/URL-encoded maps, unknown fields)
