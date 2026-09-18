@@ -7,6 +7,52 @@
  */
 export type { AttachmentId, CommentId, EvidenceId, SessionId } from './model/ids';
 
+export {
+  BRIDGE_ARTIFACT_MEDIA_TYPES,
+  BRIDGE_ERROR_CODES,
+  BRIDGE_HOST_NAME,
+  BRIDGE_MAX_ARTIFACT_BYTES,
+  BRIDGE_OPERATIONS,
+  BRIDGE_PROTOCOL_VERSION,
+  errorResponse,
+  guessArtifactMediaType,
+  isBridgeArtifactMediaType,
+  isBridgeErrorCode,
+  isBridgeOperation,
+  isSafeArtifactName,
+  isSafeArtifactSessionId,
+  parseBridgeEnvelope,
+  parseBridgePayload,
+  parseBridgeResponse,
+  readRequestId,
+  successResponse,
+  type BridgeArtifactMediaType,
+  type BridgeArtifactReadPayload,
+  type BridgeArtifactReadResult,
+  type BridgeArtifactWritePayload,
+  type BridgeArtifactWriteResult,
+  type BridgeEnvelope,
+  type BridgeError,
+  type BridgeErrorCode,
+  type BridgeErrorResponse,
+  type BridgeHealthPayload,
+  type BridgeHealthResult,
+  type BridgeOperation,
+  type BridgeParse,
+  type BridgePayloadLimits,
+  type BridgeResponse,
+  type BridgeResult,
+  type BridgeSuccessResponse,
+  type ParsedBridgeEnvelope,
+  type ValidatedBridgeArtifactWritePayload,
+} from './bridge/protocol';
+
+export {
+  decodeBase64,
+  encodeBase64,
+  type Base64DecodeResult,
+} from './bridge/base64';
+
 export { DomainValidationError } from './model/errors';
 export {
   assertHttpUrl,
@@ -82,6 +128,19 @@ export type { ActivePageInfo, ActivePagePort } from './ports/active-page';
 export type { ClockPort } from './ports/clock';
 export type { IdGeneratorPort } from './ports/id-generator';
 export type {
+  LocalArtifactContent,
+  LocalBridgeArtifactRef,
+  LocalBridgeArtifactWriteInput,
+  LocalBridgeFailure,
+  LocalBridgeFailureReason,
+  LocalBridgeHealth,
+  LocalBridgeHealthResult,
+  LocalBridgePort,
+  LocalBridgeReadResult,
+  LocalBridgeWriteResult,
+  StoredLocalArtifact,
+} from './ports/local-bridge';
+export type {
   ReviewSessionRepository,
   StorageDescriptor,
   StorageKind,
@@ -135,6 +194,15 @@ export {
   type CaptureCommentEvidenceInput,
   type CaptureCommentEvidenceResult,
 } from './usecases/capture-comment-evidence';
+
+export {
+  checkLocalBridge,
+  readSessionArtifact,
+  storeSessionArtifact,
+  type CheckLocalBridgeDeps,
+  type ReadSessionArtifactDeps,
+  type StoreSessionArtifactDeps,
+} from './usecases/local-bridge';
 
 export {
   loadOverlayState,
