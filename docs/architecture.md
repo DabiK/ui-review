@@ -34,7 +34,8 @@ specifier that leaves `src/core`.
 | `src/adapters/persistence/indexeddb/` | Durable repository (browser profile) | `@core` |
 | `src/adapters/runtime/` | Host facts: Chrome runtime, system clock, crypto ids, Navigator clipboard + deterministic doubles, in-process bridge | `@core` + bridge core |
 | `src/adapters/local-bridge/` | Shared mapping of bridge responses to typed port results | `@core` |
-| `src/adapters/chrome/` | Chrome integrations (side panel wiring, active tab, review transport, change channel, Native Messaging client) | `@core` + `@app` types |
+| `src/adapters/frameworks/` | Framework inspection adapters: self-contained React/Next main-world detector (Vue/Nuxt later) | `@core` types |
+| `src/adapters/chrome/` | Chrome integrations (side panel wiring, active tab, review transport, change channel, main-world component-context transport, Native Messaging client) | `@core` + `@app` types |
 | `src/app/` | Composition root: adapters → use cases + application gateways | `@core` + adapters |
 | `src/sidepanel/` | Driving adapter: side-panel view (plain DOM) | `@app` + `@core` types |
 | `src/content/` | Driving adapter: page overlay (shadow DOM), DOM anchor capture | `@core` types + transport |
@@ -67,9 +68,13 @@ Vocabulary (`src/core/index.ts`):
 - `Evidence` — technical context linked to a comment id, always carrying a `Confidence`
   (`confirmed` / `inferred` / `unavailable`) and an explicit payload kind (`dom`,
   `framework`, `source-map`, `visual`). `createDomEvidence()` assembles the direct DOM
-  observation captured when a reviewer pins an element; `visual` evidence records the
-  screenshot outcome per part (`captured` / `failed`) with a non-blank reason whenever a
-  capture failed — it never silently claims an image exists.
+  observation captured when a reviewer pins an element; `createFrameworkEvidence()` assembles
+  a best-effort component observation (`FrameworkObservation`: framework kind, nearest
+  component name, ancestor chain, confidence) and re-validates/bounds everything a page or an
+  adapter reports. `visual` evidence records the screenshot outcome per part
+  (`captured` / `failed`) with a non-blank reason whenever a capture failed — it never
+  silently claims an image exists. A framework observation is always recorded, including the
+  explicit `unavailable` one, so the brief never has to guess whether detection ran.
 - `Attachment` — binary artifact (viewport screenshot, element crop) linked to a comment,
   stored inline or as a local artifact path. Created via `createAttachment()`, which
   validates the image mime type, dimensions, byte length and storage shape.
@@ -150,6 +155,14 @@ Ports:
   Implementations: `ChromeRuntimeInfoAdapter`, `StaticRuntimeInfoAdapter`.
 - `ActivePagePort` — `read()` returns the focused page (url, title) or `null`.
   Implementations: `ChromeActivePageAdapter` (`chrome.tabs`), `StaticActivePageAdapter`.
+- `ComponentContextPort` — `detect({ tabId, frameId, fingerprint })` returns the best-effort
+  framework component context of the pinned element as a neutral `FrameworkObservation`.
+  Expected failures (no frame, restricted page, missing metadata) are explicit `unavailable`
+  observations, never exceptions. Implementations: `ChromeComponentContextAdapter` (runs the
+  self-contained React/Next detector from `src/adapters/frameworks/react/` in the page main
+  world through `chrome.scripting.executeScript({ world: 'MAIN' })` and validates the value
+  that crosses back; needs the `scripting` permission) and `FakeComponentContextAdapter`
+  (scriptable test double that records requests). The shared contract test runs against both.
 - `ClockPort` — `now()` returns an ISO-8601 UTC timestamp.
   Implementations: `SystemClockAdapter`, `FixedClockAdapter`.
 - `IdGeneratorPort` — `createId()` returns a fresh id.
@@ -188,19 +201,24 @@ Use cases:
 - `loadReviewPanel({ selectedSessionId? })` — read model for the side panel: runtime facts,
   storage descriptor, current page eligibility, the current page's session (active preferred,
   otherwise the latest stopped), the effective selection and the selected session's comments.
-  Each comment summary carries its screenshot previews (`dataUrl` when inline) and its
-  explicit capture outcome, so the view never reads the aggregate. The UI learns persistence
-  facts from the descriptor, never from adapter internals.
+  Each comment summary carries its screenshot previews (`dataUrl` when inline), its explicit
+  capture outcome and its best-effort framework context, so the view never reads the
+  aggregate. The UI learns persistence facts from the descriptor, never from adapter
+  internals.
 - `addReviewComment({ sessionId, text, pageUrl, viewport, category?, priority?, anchor? })` —
   adds one comment to an **active** session of the same page, with its optional DOM anchor
   assembled into a `confirmed` DOM evidence linked by comment id. Blank text, invalid anchors
   and mismatched pages are refused with typed failures; nothing is written.
 - `captureCommentEvidence({ sessionId, commentId, capture })` — asks `ScreenshotCapturePort`
-  for the viewport screenshot and element crop of the pinned element, then appends the
-  attachments and one `visual` evidence record linked to the comment id. Confidence is
-  `confirmed` when both images exist, `inferred` when only one does and `unavailable`
-  otherwise; a missing tab context or a throwing adapter becomes explicit failed evidence, so
-  the text/DOM comment always survives. Screen capture failures are never thrown.
+  for the viewport screenshot and element crop of the pinned element and
+  `ComponentContextPort` for its component context, then appends the attachments, one
+  `visual` evidence record and one `framework` evidence record, all linked to the comment id.
+  Visual confidence is `confirmed` when both images exist, `inferred` when only one does and
+  `unavailable` otherwise; framework confidence comes from the inspection adapter
+  (`confirmed` only for development metadata, `inferred` for production-like metadata).
+  A missing tab context, a throwing adapter or a malformed observation becomes explicit
+  failed/unavailable evidence, so the text/DOM comment always survives. Capture failures are
+  never thrown.
 - `updateReviewComment({ sessionId, commentId, text, category, priority })` — edits one stored
   comment and refreshes `updatedAt`; anchor, evidence and attachments survive.
 - `deleteReviewComment({ sessionId, commentId })` — removes exactly one comment.
@@ -247,7 +265,9 @@ domain decision):
   `deleteReviewComment` and `deleteReviewCommentAttachment` through the composition root, and
   subscribes to stored changes so a note created from the page appears without a manual
   refresh. Screenshots render as numbered plates (`Fig. 1 · Viewport`, `Fig. 2 · Element
-  crop`) with independent two-step removal; a failed capture renders its reason instead.
+  crop`) with independent two-step removal; a failed capture renders its reason instead, and
+  the framework badge reads `detected`, `inferred (best effort)` or `unavailable` — never
+  more than the inspection adapter actually observed.
 - `content-script.js` (built separately as an IIFE from `src/content/index.ts`, declared in
   `manifest.content_scripts` for `http(s)` pages) is the page driving adapter. On load it asks
   the service worker for `loadOverlayState(location.href)`; only an explicitly active session
@@ -263,6 +283,16 @@ domain decision):
   (`chrome.tabs.captureVisibleTab` for the tab's window, `createImageBitmap` +
   `OffscreenCanvas` for the element crop scaled from CSS pixels to image pixels). The overlay
   is restored as soon as the save response arrives, so captured images show the page itself.
+- Framework component context is read in the page's **main world**, because React attaches
+  its fiber objects as JavaScript expandos (`__reactFiber$…`) that an isolated content script
+  can never see. The detection function is self-contained, bounded (ancestor, fiber and chain
+  caps), never throws, and is injected on demand by `chrome.scripting.executeScript({
+  world: 'MAIN' })` only after an active session accepted the comment: no page is inspected
+  before `Start review`, and the returned value is re-validated before it enters the core.
+  The `scripting` permission is required for that call; a missing frame, a restricted page or
+  a minified build degrades to an explicit `unavailable`/`inferred` observation and never
+  blocks the note. Development builds are recognised by React's `_debugOwner`/`_debugSource`
+  markers, so a production name is never presented as confirmed source truth.
 - The `host_permissions: ["<all_urls>"]` entry is required because
   `chrome.tabs.captureVisibleTab` accepts only `<all_urls>` or the short-lived `activeTab`
   grant, and `activeTab` is revoked by a page reload while a review session survives it. The
@@ -281,7 +311,8 @@ domain decision):
   explanation.
 - The `tabs` permission is required so `ChromeActivePageAdapter` can report the focused page
   URL and title and so the service worker can push overlay syncs to the matching tabs; the
-  core and the UI still never call `chrome.*` directly.
+  core and the UI still never call `chrome.*` directly. The `scripting` permission is used
+  only for the on-demand main-world component detection described above.
 - The `nativeMessaging` permission lets the composition root's
   `ChromeNativeMessagingBridgeAdapter` round-trip health, artifact and handoff requests through
   the host manifest. The `clipboardWrite` permission lets `NavigatorClipboardAdapter` copy the
@@ -347,9 +378,11 @@ domain decision):
 - Core tests import only the `@core` barrel and exercise public behaviour.
 - The same `ReviewSessionRepository` contract test runs against the in-memory and IndexedDB
   adapters, so the test double cannot drift from the durable store. `ClockPort`,
-  `IdGeneratorPort`, `ActivePagePort` and `ScreenshotCapturePort` each have a contract test
-  run against both implementations (the Chrome capture adapter is exercised with stubbed
-  extension globals for the three capture scenarios).
+  `IdGeneratorPort`, `ActivePagePort`, `ScreenshotCapturePort` and `ComponentContextPort`
+  each have a contract test run against both implementations (the Chrome capture adapter is
+  exercised with stubbed extension globals for the three capture scenarios; the Chrome
+  component adapter is exercised with a stubbed `chrome.scripting.executeScript` and asserts
+  the `world: 'MAIN'` call, the frame targeting and the rejection of malformed page results).
 - `tests/adapters/session-resume.test.ts` writes with one set of adapter instances and reads
   back with fresh ones, proving the reload/resume acceptance criterion through the real
   IndexedDB adapter.
@@ -367,6 +400,14 @@ domain decision):
   `tests/core/capture-comment-evidence.test.ts`
   covers the confirmed/inferred/unavailable capture outcomes, the screenshot-to-comment
   linkage, independent attachment deletion and the resilience paths.
+- `tests/adapters/react-component-context.test.ts` exercises the self-contained main-world
+  detector: a development fiber fixture yields the nearest component and its ancestor chain as
+  `confirmed`, production-like fibers stay `inferred`, plain pages and anonymous fibers are
+  explicit `unavailable`/named-less outcomes, Next.js falls back to `__NEXT_DATA__`, and
+  memo/forwardRef, hostile getters, cyclic chains, missing elements and length caps never
+  throw. `tests/core/framework-evidence.test.ts` guards the evidence factory (vocabulary,
+  blank names, bounds) and `tests/ui/review-panel-view.test.ts` proves `inferred` is never
+  labelled as detected.
 - `tests/core/review-brief.test.ts` builds briefs from real captured sessions, proves the
   deterministic ordering/file names and the explicit unavailable-attachment states, renders
   the Markdown and re-parses the exported JSON with the documented schema (including unknown
@@ -391,7 +432,8 @@ domain decision):
   of network listeners or stdout logging.
 - `tests/architecture/core-boundaries.test.ts` guards the dependency rule.
 - `tests/extension/manifest.test.ts` guards the MV3 manifest and its entry points, including
-  the content-script declaration and the capture host permission.
+  the content-script declaration, the capture host permission and the `scripting` permission
+  used by the main-world component detection.
 
 ## Commands
 

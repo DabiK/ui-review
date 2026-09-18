@@ -88,6 +88,18 @@ accepts only `<all_urls>` or a short-lived `activeTab` grant (which a page reloa
 the extension declares the `<all_urls>` host permission; screenshots still stay in the local
 browser profile.
 
+Framework context is a best-effort extra, never a guarantee. React attaches its component
+fibers as JavaScript expandos (`__reactFiber$…`) that an isolated content script cannot see,
+so the service worker injects a self-contained detector into the page's main world on demand
+(`chrome.scripting.executeScript({ world: 'MAIN' })`, `scripting` permission) — only after an
+active session has accepted the note, never before **Start review**. The nearest component
+name and its ancestor chain are stored with an explicit confidence: `detected` only when
+React's development metadata (`_debugOwner`/`_debugSource`) is directly observed, `inferred`
+for production-like or Next.js metadata, `unavailable` when nothing readable exists. The
+panel always shows which of the three applies, and a missing frame, restricted page or
+minified build degrades to an explicit state instead of breaking the annotation. The agent
+brief carries the same context and confidence labels.
+
 The module map, public interfaces and the dependency rule are documented in
 [`docs/architecture.md`](docs/architecture.md). The agent workflow (one implementation agent
 per issue, a distinct review agent, evidence in PRs) is documented in [`AGENTS.md`](AGENTS.md).
