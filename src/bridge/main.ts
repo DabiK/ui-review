@@ -6,6 +6,7 @@ import {
   serveNativeMessaging,
   type NativeMessagingServer,
 } from './adapters/native-messaging/native-messaging-server';
+import { BRIDGE_PROTOCOL_VERSION } from '../core/bridge/protocol';
 import { createPlatformAppDataPaths } from './adapters/os/app-data-paths';
 import { parseAllowedOrigins } from './core/config';
 import { handleBridgeMessage } from './core/handle-request';
@@ -23,6 +24,21 @@ const APP_DIRECTORY_NAME = 'ui-review';
 const ALLOWED_ORIGINS_VARIABLE = 'UI_REVIEW_BRIDGE_ALLOWED_ORIGINS';
 const DATA_ROOT_VARIABLE = 'UI_REVIEW_BRIDGE_DATA_ROOT';
 const HANDOFF_ROOT_VARIABLE = 'UI_REVIEW_BRIDGE_HANDOFF_ROOT';
+
+// Diagnostic mode used by the installers and by users checking a standalone artifact. It
+// serves no frame and needs no allowlist, so it can run before Chrome is involved.
+if (process.argv.includes('--health')) {
+  process.stdout.write(
+    `${JSON.stringify({
+      kind: 'bridge.health',
+      status: 'ok',
+      bridgeVersion: BRIDGE_VERSION,
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      platform: process.platform,
+    })}\n`,
+  );
+  process.exit(0);
+}
 
 const allowedOrigins = parseAllowedOrigins(process.env[ALLOWED_ORIGINS_VARIABLE]);
 if (allowedOrigins.length === 0) {
