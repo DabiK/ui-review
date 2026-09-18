@@ -151,7 +151,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Inspect all serialization paths for accidental disclosure and verify screenshots match the intended selected element.
   >
 
-- [ ] #5 — Build the secure Native Messaging bridge and artifact store (labels: area:architecture, area:bridge, blocked)
+- [x] #5 — Build the secure Native Messaging bridge and artifact store (labels: area:architecture, area:bridge, blocked)
 
   **Issue #5 — détail complet**
   > # 05 — Build the secure Native Messaging bridge and artifact store
