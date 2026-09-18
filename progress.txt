@@ -91,4 +91,5 @@ Décisions :
 - L'écran d'erreur du side panel affiche le message brut pour l'instant ; #2 le remplacera
   par des états utilisateur explicites.
 
-Problèmes : aucun. Review indépendante et fermeture de l'issue #1 faites au SHA du commit.
+Problèmes : aucun. Issue #1 fermée sur le commit 5e67abc ; la review indépendante est
+assurée par la boucle (agent reviewer distinct).
