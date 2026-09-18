@@ -1,0 +1,58 @@
+# progress.txt — ui-review
+
+## Objectif
+
+Implémenter les 11 issues MVP de DabiK/ui-review (extension Chrome MV3 de UI review locale,
+handoff agent-ready). PRD.md est généré depuis les issues GitHub ouvertes : c'est la source
+de vérité, le détail complet de chaque tâche y est.
+
+## Règles de la boucle
+
+- UNE SEULE tâche par itération. Ne jamais enchaîner sur la suivante.
+- **Ordre d'implémentation : numéros d'issue croissants (#1 → #11).** Cet ordre est un ordre
+  topologique valide du DAG : chaque issue ne dépend que de numéros inférieurs
+  (#2←#1, #3←#2, #4←#3, #5←#1, #6←#4+#5, #7←#3, #8←#7, #9←#3, #10←#5, #11←#6+#8+#9+#10).
+  Les labels GitHub `blocked` ne sont que documentaires : ne pas s'en servir pour bloquer,
+  l'ordre numérique suffit.
+- **Architecture hexagonale / clean — exigence centrale, front ET back.** Le cœur de domaine
+  (`review-core`, cœur du bridge natif) ne dépend d'aucune techno : aucun import Chrome/DOM/
+  React/Vue/Node/OS dans le core. Les dépendances pointent toujours vers l'intérieur : ports
+  définis par le domaine, adaptateurs à l'extérieur (driving : side panel, overlay ; driven :
+  persistance, bridge, OS, frameworks). Aucun accès direct à `chrome.*` ou au stockage depuis
+  l'UI ni depuis le core : uniquement via use cases + ports. Chaque port existant doit avoir au
+  moins deux implémentations réelles (ex. in-memory test + IndexedDB ; transport fake + Native
+  Messaging). Le bridge natif suit la même structure : core pur indépendant de l'OS + adapters
+  Native Messaging / filesystem / dossiers OS.
+- **Direction design (lead) : « Editorial margin notes ».** Voir `docs/design/DESIGN.md` et la
+  référence `docs/design/sidebar-b-editorial.png`. À appliquer à tout ticket UI (#1 shell,
+  #2, #3, #4, #6). C'est un lead, pas du pixel-perfect : respecter les tokens, les filets fins,
+  l'index numéroté, la typo serif/sans/mono et éviter le look dashboard générique. Textes UI
+  en anglais.
+- Explorer le code avant d'implémenter. Ne jamais coder sur un module non relu.
+- Vérifier : tests, typecheck, lint, build (scripts package.json une fois créés par #1).
+  Tant que #1 n'a pas posé le tooling, vérifier au minimum que le manifest/extension se charge.
+- Commits petits et atomiques. Ne pas pousser (le remote reste à l'humain).
+- Fermer l'issue GitHub correspondante (`gh issue close <n>`) quand la tâche est complète.
+- Si une tâche est bloquée : documenter dans ce fichier, marquer [BLOCKED] dans le tableau,
+  passer à la suivante. Les tâches [BLOCKED] sont ignorées par Ralph.
+- Bug hors périmètre : le signaler ici, ne pas le corriger.
+
+## Avancement
+
+| # | Tâche | Statut |
+|---|-------|--------|
+| 1 | Bootstrap clean architecture + agent workflow | TODO |
+| 2 | Session lifecycle in side panel | TODO |
+| 3 | Generic DOM click-to-pin review | TODO |
+| 4 | Evidence capture and privacy controls | TODO |
+| 5 | Native Messaging bridge and artifact store | TODO |
+| 6 | Copy agent brief and materialize handoff | TODO |
+| 7 | React/Next component context adapter | TODO |
+| 8 | Resolve source maps to source context | TODO |
+| 9 | Vue/Nuxt component context adapter | TODO |
+| 10 | Package native bridge for macOS and Windows | TODO |
+| 11 | Validate the full review-to-agent experience | TODO |
+
+## Itérations
+
+<!-- Rempli par Ralph à chaque itération : tâche, décisions, état, problèmes. -->
