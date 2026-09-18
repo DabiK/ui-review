@@ -17,7 +17,7 @@ domaine sans import Chrome/DOM/framework/Node/OS, ports définis par le domaine 
 au moins deux implémentations réelles par port, aucun accès direct `chrome.*`/stockage depuis
 l'UI ou le core. Détails dans `progress.txt`.
 
-- [ ] #1 — Bootstrap the clean architecture and agent workflow (labels: area:architecture, area:quality, ready-for-agent)
+- [x] #1 — Bootstrap the clean architecture and agent workflow (labels: area:architecture, area:quality, ready-for-agent)
 
   **Issue #1 — détail complet**
   > # 01 — Bootstrap the clean architecture and agent workflow

@@ -21,4 +21,30 @@ Le bridge local utilise Chrome Native Messaging, jamais un serveur HTTP local. I
 Les 11 tickets MVP sont publiés dans les [issues](https://github.com/DabiK/ui-review/issues). Ils forment un DAG : commencer par [#1 — clean architecture et workflow agent](https://github.com/DabiK/ui-review/issues/1), puis débloquer les tranches verticales.
 
 Chaque ticket impose un implémenteur agent isolé et une review par un second agent, avec critères d'acceptation vérifiables.
+
+## Development
+
+Requirements: Node.js ≥ 20.19.
+
+```sh
+npm install
+npm run verify   # lint → typecheck → unit tests → build
+```
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Rebuild `dist/` on change (reload the extension to apply) |
+| `npm run build` | Production build into `dist/` |
+| `npm run typecheck` | TypeScript, no emit |
+| `npm run lint` | ESLint, includes the core boundary rules |
+| `npm test` | Unit and architecture tests |
+
+Load the unpacked extension: run `npm run build`, open `chrome://extensions`, enable
+Developer mode, click **Load unpacked** and select `dist/`. Clicking the toolbar icon opens
+the side panel.
+
+The module map, public interfaces and the dependency rule are documented in
+[`docs/architecture.md`](docs/architecture.md). The agent workflow (one implementation agent
+per issue, a distinct review agent, evidence in PRs) is documented in [`AGENTS.md`](AGENTS.md).
+
 Local-first Chrome UI review annotations with agent-ready handoff

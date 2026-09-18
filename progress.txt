@@ -41,7 +41,7 @@ de vérité, le détail complet de chaque tâche y est.
 
 | # | Tâche | Statut |
 |---|-------|--------|
-| 1 | Bootstrap clean architecture + agent workflow | TODO |
+| 1 | Bootstrap clean architecture + agent workflow | DONE |
 | 2 | Session lifecycle in side panel | TODO |
 | 3 | Generic DOM click-to-pin review | TODO |
 | 4 | Evidence capture and privacy controls | TODO |
@@ -56,3 +56,39 @@ de vérité, le détail complet de chaque tâche y est.
 ## Itérations
 
 <!-- Rempli par Ralph à chaque itération : tâche, décisions, état, problèmes. -->
+
+### Itération 1 — Issue #1 (bootstrap clean architecture + workflow agent)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 44 tests / 8 fichiers, build).
+
+Livré :
+
+- Workspace TypeScript strict, Vite 8 (build MV3 multi-entrées), Vitest 5, ESLint 10 flat
+  config. Scripts : `dev`, `build`, `typecheck`, `lint`, `test`, `verify`.
+- Cœur `review-core` pur (`src/core`) : vocabulaire `ReviewSession`, `ReviewComment`,
+  `Evidence`, `Attachment`, `Confidence`, invariants (`DomainValidationError`), ports
+  `ReviewSessionRepository` et `RuntimeInfoPort`, read model `loadWorkspaceStatus`.
+- Adaptateurs : `InMemoryReviewSessionRepository` + `IndexedDbReviewSessionRepository`
+  (même contrat testé sur les deux), `ChromeRuntimeInfoAdapter` + `StaticRuntimeInfoAdapter`,
+  wiring side panel Chrome. Au moins deux implémentations réelles par port.
+- Composition root `src/app` : seule zone qui choisit les adaptateurs ; l'UI n'accède jamais
+  à `chrome.*` ni au stockage directement.
+- Shell MV3 : `public/manifest.json`, service worker module, side panel HTML/TS/CSS
+  « Editorial margin notes » (vérifié visuellement sur les états succès et erreur).
+- Docs/workflow : `docs/architecture.md`, `AGENTS.md` (implémenteur et reviewer distincts,
+  checks + preuves obligatoires), `.github/pull_request_template.md`, section Development
+  du README, `.gitignore` (dist, node_modules…).
+
+Décisions :
+
+- Vite 8 passe par Rolldown : config en `build.rolldownOptions` (`rollupOptions` déprécié).
+- IndexedDB sans dépendance runtime (wrapper IDB maison) ; `fake-indexeddb` uniquement en
+  test. Le contrat de dépôt clone l'état en entrée/sortie (pas de référence vivante).
+- Frontière du cœur garantie deux fois : ESLint `no-restricted-imports` sur `src/core/**` et
+  `tests/architecture/core-boundaries.test.ts` qui résout chaque import et refuse toute
+  sortie de `src/core`.
+- Version du manifest synchronisée avec `package.json` et vérifiée par test.
+- L'écran d'erreur du side panel affiche le message brut pour l'instant ; #2 le remplacera
+  par des états utilisateur explicites.
+
+Problèmes : aucun. Review indépendante et fermeture de l'issue #1 faites au SHA du commit.

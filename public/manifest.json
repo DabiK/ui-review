@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "UI Review",
+  "version": "0.1.0",
+  "description": "Local-first UI review annotations with agent-ready handoff.",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "UI Review — open side panel"
+  }
+}
