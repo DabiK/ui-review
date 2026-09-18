@@ -93,3 +93,24 @@ Décisions :
 
 Problèmes : aucun. Issue #1 fermée sur le commit 5e67abc ; la review indépendante est
 assurée par la boucle (agent reviewer distinct).
+
+### Review round 1 — faux rejet d'outillage (périmètre `f64126f..HEAD`)
+
+Statut : **aucun manque réel**. La review indépendante s'est conclue sur un verdict APPROVED
+(rapport complet dans `.ralph/reviews.log`) : cœur sans import Chrome/DOM/framework/adaptateur,
+deux implémentations réelles par port avec tests de contrat, commandes vertes, issue #1 fermée,
+QA UI validée dans Chrome. Deux points mineurs explicitement hors verdict : test de contrat
+`RuntimeInfoPort` (issue de suivi #12) et message d'erreur brut du side panel (suivi prévu en #2).
+
+Le script de boucle a malgré tout déclenché un round de correction : il cherche le marqueur de
+verdict dans *toute* la sortie du reviewer, et un listing `ps` produit par le reviewer (qui
+affichait sa propre ligne de commande, prompt inclus) contenait le marqueur de rejet. C'est un
+faux positif de l'outillage, pas un rejet de fond.
+
+Action de ce round :
+
+- `npm run verify` re-exécuté : lint, typecheck, 44 tests / 8 fichiers, build — tout vert.
+- Aucun changement de code : le diff approuvé reste identique, aucun commit vide.
+
+Note pour les agents suivants : ne pas laisser la ligne de commande du prompt reviewer
+apparaître dans la sortie (par ex. via `ps`), le script de boucle y lit un rejet à tort.
