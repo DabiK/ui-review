@@ -316,7 +316,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Compare adapter behavior against the React adapter’s public contract, not its implementation details.
   >
 
-- [ ] #10 — Package and install the bridge on macOS and Windows (labels: area:release, area:bridge, blocked)
+- [x] #10 — Package and install the bridge on macOS and Windows (labels: area:release, area:bridge, blocked)
 
   **Issue #10 — détail complet**
   > # 10 — Package and install the bridge on macOS and Windows

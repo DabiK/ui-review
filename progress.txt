@@ -50,7 +50,7 @@ de vérité, le détail complet de chaque tâche y est.
 | 7 | React/Next component context adapter | DONE |
 | 8 | Resolve source maps to source context | DONE |
 | 9 | Vue/Nuxt component context adapter | DONE |
-| 10 | Package native bridge for macOS and Windows | TODO |
+| 10 | Package native bridge for macOS and Windows | DONE |
 | 11 | Validate the full review-to-agent experience | TODO |
 
 ## Itérations
@@ -837,3 +837,70 @@ React (`_debugSource` sans ligne). Issue #9 fermée sur les commits faacb63..a72
 - Evidence and limits: docs/design/REFONTE-EVIDENCE.md. Live native-bridge E2E not repeated.
 - Separate handover debt remains: #13, #15, #16, #19, #25; #14 coverage is limited to the
   tested renderer continuity cases. Concurrent bridge/setup work was preserved.
+
+### Itération 10 — Issue #10 (packaging et installation du bridge macOS / Windows)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 62 fichiers / 584 tests, build triple).
+
+Livré :
+
+- Bundle bridge désormais CommonJS `dist/bridge/main.cjs` (l'embedder SEA de Node n'exécute
+  qu'un main CommonJS) ; launcher dev, smoke, test exécutable et docs alignés.
+- Mode `--health` du binaire : une ligne JSON (`bridgeVersion`, `protocolVersion`, `platform`)
+  avant le fail-closed de l'allowlist, pour vérifier un artefact installé sans Chrome.
+- `scripts/package-bridge.mjs` : SEA (`--experimental-sea-config`) + postject (`NODE_SEA_BLOB`,
+  fuse `NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`, segment Mach-O `NODE_SEA`), signature
+  ad-hoc macOS, cibles `darwin-arm64` (Node local) et `win-x64` (node.exe téléchargé/caché,
+  `--node-binary` possible). Sortie `release/ui-review-bridge-<target>/` (gitignoré).
+- `scripts/lib/bridge-release.mjs` (pur) + `packaging/<target>/` : installateurs/désinstalleurs
+  macOS (`install.sh`/`uninstall.sh`) et Windows (`install.ps1`/`uninstall.ps1`) et README par
+  artefact. Les installateurs copient sous le dossier applicatif utilisateur, écrivent le
+  launcher qui épingle l'origine, enregistrent le manifeste hôte (dossier NativeMessagingHosts
+  macOS / registre `HKCU\...\NativeMessagingHosts` Windows) et lancent `--health` ; les
+  désinstalleurs retirent l'enregistrement sans jamais toucher `sessions/`.
+- `npm run bridge:package` ; `npm run bridge:smoke -- --binary <path>` teste un artefact réel.
+- Release checks `tests/release/bridge-release.test.ts` : exécute le CLI en `--plan --json` et
+  valide le nommage des artefacts, les deux manifestes hôtes, la clé de registre, la présence
+  des installateurs et l'égalité plan ↔ `BRIDGE_PROTOCOL_VERSION`.
+- Cœur : read model `loadBridgeSetup({ bridge, expectedVersion })` → `ready` / `missing` /
+  `incompatible` (version différente, handshake rejeté ou malformé), jamais d'exception ; le
+  container lit la version attendue via `RuntimeInfoPort` (bridge et extension sortent ensemble).
+- Panneau : bloc « Local bridge » dans le handoff — ligne discrète quand prêt, état d'action
+  « Not installed. » / « Not compatible. » avec explication et bouton **Check again** qui
+  relance le health check ; `Copy agent brief` désactivé tant qu'aucun bridge compatible n'est
+  connu. Tests vue + side panel.
+
+Décisions :
+
+- SEA plutôt qu'un wrapper Node : l'exécutable embarque le runtime → aucun Node requis après
+  installation (AC). Le bundle passe en CJS pour cette raison (un seul artefact, pas de
+  divergence dev/packagé).
+- L'id d'extension est fourni à l'installation (l'id unpacked dépend de la machine) ; les
+  manifestes du plan utilisent des placeholders `~`/`%APPDATA%` résolus par les installateurs.
+- Comparaison exacte `bridgeVersion` ↔ version de l'extension : les deux sont livrés ensemble ;
+  le protocole filaire reste vérifié séparément à chaque réponse.
+- Signature ad-hoc macOS (suffisante localement) ; binaires ~110 MiB assumés (runtime embarqué),
+  documenté dans le README.
+- Windows cross-packagé depuis macOS (PE32+ vérifié, blob présent) mais non exécuté : aucune
+  machine Windows ici. Étapes documentées dans le README et le README d'artefact.
+
+QA réelle macOS Apple Silicon (HOME de test isolé) :
+
+- `bridge:package --target darwin-arm64` → binaire 111.4 MiB signé, `--health` OK ; smoke
+  complet (health/write/read/handoff) sur le binaire packagé via `bridge:smoke --binary`.
+- `install.sh --extension-id <id>` : exécutable + launcher + manifeste écrits, health OK ;
+  round trip réel d'une frame health à travers le launcher (framing 4 octets) OK.
+- `uninstall.sh` : manifeste + bridge retirés, `sessions/` conservé, second passage
+  « Nothing to remove » (aucun enregistrement orphelin).
+- `bridge:package --target win-x64` : exe PE32+ 86 MiB avec blob SEA embarqué, manifeste,
+  clé de registre et scripts validés statiquement par les release checks.
+
+Concurrence : ce worktree a été modifié en parallèle par l'agent de refonte visuelle
+(`docs/design/HANDOVER.md`) et par l'ajout de la pause durable, commités séparément dans
+`388fcfa` ; le commit `627d0bf` ne contient que la partie #10 (bloc bridge du panneau, tests,
+docs). L'agent de refonte a intégré le bloc bridge dans ses fixtures
+(`tests/fixtures/design-preview.ts`, état `bridge-missing`) et son evidence
+`docs/design/evidence/after-bridge-missing.png` montre l'état de récupération rendu.
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
+contrat (issue #12).
