@@ -8,6 +8,7 @@ import type {
   FrameworkEvidenceSummary,
   ReviewPanelState,
   SessionSummary,
+  SourceMapEvidenceSummary,
   VisualEvidenceSummary,
 } from '@core';
 
@@ -577,6 +578,23 @@ function frameworkStatusMessage(framework: FrameworkEvidenceSummary): string {
     : `${label} context: inferred — ${framework.componentName} (best effort)`;
 }
 
+/**
+ * Source context is honest about how it was obtained: a direct development reference is
+ * `detected`, a position resolved from a bundle source map stays `inferred`, and an
+ * unavailable resolution is stated instead of hidden.
+ */
+function sourceMapStatusMessage(sourceMap: SourceMapEvidenceSummary): string {
+  if (sourceMap.confidence === 'unavailable') {
+    return 'Source map: unavailable';
+  }
+
+  const file = sourceMap.sourceFile ?? 'unknown source';
+  const location = `${file}:${sourceMap.line ?? 1}:${sourceMap.column ?? 1}`;
+  return sourceMap.confidence === 'confirmed'
+    ? `Source map: detected — ${location}`
+    : `Source map: inferred — ${location} (best effort)`;
+}
+
 function renderCommentRow(
   comment: CommentSummary,
   position: number,
@@ -611,6 +629,16 @@ function renderCommentRow(
         'p',
         'comment__framework',
         frameworkStatusMessage(comment.frameworkEvidence),
+      ),
+    );
+  }
+
+  if (comment.sourceMapEvidence !== null) {
+    body.append(
+      element(
+        'p',
+        'comment__source-map',
+        sourceMapStatusMessage(comment.sourceMapEvidence),
       ),
     );
   }

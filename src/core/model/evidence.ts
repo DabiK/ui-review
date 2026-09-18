@@ -51,6 +51,17 @@ export interface FrameworkEvidence {
 }
 
 /**
+ * Raw source location a framework inspection adapter read from development metadata. It is
+ * not yet resolved through a source map: `line` and `column` are 1-based (the adapter
+ * normalizes the 0-based columns of Babel/React debug metadata) and may be unknown.
+ */
+export interface SourceReference {
+  readonly fileName: string;
+  readonly line: number | null;
+  readonly column: number | null;
+}
+
+/**
  * Best-effort component context observed on the page by a framework inspection adapter.
  * The adapter owns the confidence decision: `confirmed` when development metadata was
  * directly observed, `inferred` for production-like or heuristic metadata, and
@@ -61,6 +72,8 @@ export interface FrameworkObservation {
   readonly componentName: string | null;
   readonly componentChain: readonly string[];
   readonly confidence: Confidence;
+  /** Development source location of the nearest component, when the page exposed one. */
+  readonly sourceReference: SourceReference | null;
 }
 
 /** Neutral observation recorded when no framework metadata could be read at all. */
@@ -70,6 +83,7 @@ export function unavailableFrameworkObservation(): FrameworkObservation {
     componentName: null,
     componentChain: [],
     confidence: 'unavailable',
+    sourceReference: null,
   };
 }
 
@@ -79,6 +93,31 @@ export interface SourceMapEvidence {
   readonly line: number | null;
   readonly column: number | null;
   readonly reason: string | null;
+}
+
+/**
+ * Outcome of resolving a source reference. `confirmed` is a source file directly observed
+ * in development metadata, `inferred` is a source position obtained by mapping a compiled
+ * location through a source map, and `unavailable` states an explicit failure with a reason
+ * instead of pretending an arbitrary DOM node has a source location.
+ */
+export interface SourceMapObservation {
+  readonly sourceFile: string | null;
+  readonly line: number | null;
+  readonly column: number | null;
+  readonly confidence: Confidence;
+  readonly reason: string | null;
+}
+
+/** Neutral observation recorded when no source location could be resolved. */
+export function unavailableSourceMapObservation(reason: string): SourceMapObservation {
+  return {
+    sourceFile: null,
+    line: null,
+    column: null,
+    confidence: 'unavailable',
+    reason,
+  };
 }
 
 /** `captured` means the image exists; `failed` records why it does not. */
@@ -189,14 +228,46 @@ export function createEvidence(input: CreateEvidenceInput): Evidence {
   const id = assertNonBlank(input.id, 'id');
   const commentId = assertNonBlank(input.commentId, 'commentId');
   const capturedAt = assertIsoTimestamp(input.capturedAt, 'capturedAt');
+  const confidence = assertConfidence(input.confidence);
+  const payload = assertEvidencePayload(input.payload);
+  assertPayloadMatchesConfidence(confidence, payload);
 
   return {
     id,
     commentId,
-    confidence: assertConfidence(input.confidence),
+    confidence,
     capturedAt,
-    payload: assertEvidencePayload(input.payload),
+    payload,
   };
+}
+
+/**
+ * Cross-field invariant the payload shape alone cannot express: an unavailable source map
+ * must carry an explanatory reason and must not keep a file reference, and an inferred one
+ * must explain how the position was obtained.
+ */
+function assertPayloadMatchesConfidence(confidence: Confidence, payload: EvidencePayload): void {
+  if (payload.type !== 'source-map') {
+    return;
+  }
+  if (confidence === 'unavailable') {
+    if (payload.sourceFile !== null) {
+      throw new DomainValidationError(
+        'sourceFile',
+        'sourceFile must be null when the source map is unavailable',
+      );
+    }
+    if (payload.reason === null) {
+      throw new DomainValidationError(
+        'reason',
+        'reason must explain why the source map is unavailable',
+      );
+    }
+    return;
+  }
+  if (confidence === 'inferred' && payload.reason === null) {
+    throw new DomainValidationError('reason', 'reason must explain an inferred source map');
+  }
 }
 
 function assertEvidencePayload(payload: EvidencePayload): EvidencePayload {
@@ -208,7 +279,7 @@ function assertEvidencePayload(payload: EvidencePayload): EvidencePayload {
     case 'framework':
       return assertFrameworkEvidence(payload);
     case 'source-map':
-      return payload;
+      return assertSourceMapEvidence(payload);
   }
 }
 
@@ -246,6 +317,22 @@ function assertFrameworkEvidence(value: FrameworkEvidence): FrameworkEvidence {
           MAX_COMPONENT_NAME_LENGTH,
         ),
       ),
+  };
+}
+
+function assertSourceMapEvidence(value: SourceMapEvidence): SourceMapEvidence {
+  return {
+    type: 'source-map',
+    sourceFile:
+      value.sourceFile === null
+        ? null
+        : truncate(assertNonBlank(value.sourceFile, 'sourceFile'), MAX_SOURCE_FILE_LENGTH),
+    line: value.line === null ? null : assertPositiveInteger(value.line, 'line'),
+    column: value.column === null ? null : assertPositiveInteger(value.column, 'column'),
+    reason:
+      value.reason === null
+        ? null
+        : truncate(assertNonBlank(value.reason, 'reason'), MAX_SOURCE_REASON_LENGTH),
   };
 }
 
@@ -325,6 +412,8 @@ export function createDomEvidence(input: CreateDomEvidenceInput): Evidence {
 
 const MAX_COMPONENT_NAME_LENGTH = 120;
 const MAX_COMPONENT_CHAIN_LENGTH = 8;
+const MAX_SOURCE_FILE_LENGTH = 512;
+const MAX_SOURCE_REASON_LENGTH = 240;
 
 export interface CreateFrameworkEvidenceInput {
   readonly id: EvidenceId;
@@ -349,6 +438,34 @@ export function createFrameworkEvidence(input: CreateFrameworkEvidenceInput): Ev
       framework: input.observation.framework,
       componentName: input.observation.componentName,
       componentChain: input.observation.componentChain,
+    },
+  });
+}
+
+export interface CreateSourceMapEvidenceInput {
+  readonly id: EvidenceId;
+  readonly commentId: CommentId;
+  readonly capturedAt: string;
+  readonly observation: SourceMapObservation;
+}
+
+/**
+ * Creates the explicit source location linked to a comment. Page-provided file references
+ * are untrusted: they are bounded again here, and an `unavailable` observation must carry a
+ * reason rather than an empty claim.
+ */
+export function createSourceMapEvidence(input: CreateSourceMapEvidenceInput): Evidence {
+  return createEvidence({
+    id: input.id,
+    commentId: input.commentId,
+    capturedAt: input.capturedAt,
+    confidence: input.observation.confidence,
+    payload: {
+      type: 'source-map',
+      sourceFile: input.observation.sourceFile,
+      line: input.observation.line,
+      column: input.observation.column,
+      reason: input.observation.reason,
     },
   });
 }

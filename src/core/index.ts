@@ -74,7 +74,9 @@ export {
   createDomEvidence,
   createEvidence,
   createFrameworkEvidence,
+  createSourceMapEvidence,
   unavailableFrameworkObservation,
+  unavailableSourceMapObservation,
   type Attachment,
   type AttachmentKind,
   type AttachmentStorage,
@@ -83,6 +85,7 @@ export {
   type CreateDomEvidenceInput,
   type CreateEvidenceInput,
   type CreateFrameworkEvidenceInput,
+  type CreateSourceMapEvidenceInput,
   type DomAnchor,
   type DomEvidence,
   type Evidence,
@@ -92,10 +95,23 @@ export {
   type FrameworkObservation,
   type Rect,
   type SourceMapEvidence,
+  type SourceMapObservation,
+  type SourceReference,
   type Viewport,
   type VisualCaptureStatus,
   type VisualEvidence,
 } from './model/evidence';
+
+export {
+  decodeInlineSourceMap,
+  findSourceMappingUrl,
+  parseSourceMapDocument,
+  resolveSourceMapPosition,
+  type ResolvedSourcePosition,
+  type SourceMapDocument,
+} from './source-maps/source-map-resolver';
+
+export { isDirectSourceReference } from './source-maps/source-reference';
 
 export {
   REDACTED_VALUE,
@@ -203,6 +219,11 @@ export type {
   ScreenshotCapturePort,
   ScreenshotCaptureRequest,
 } from './ports/screenshot-capture';
+export type {
+  SourceMapContextPort,
+  SourceMapContextRequest,
+  SourceMapResolution,
+} from './ports/source-map-context';
 
 export {
   clearReviewSession,
@@ -286,5 +307,6 @@ export {
   type LoadReviewPanelInput,
   type ReviewPanelState,
   type SessionSummary,
+  type SourceMapEvidenceSummary,
   type VisualEvidenceSummary,
 } from './usecases/load-review-panel';

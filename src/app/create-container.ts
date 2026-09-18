@@ -44,6 +44,7 @@ import { ChromeComponentContextAdapter } from '@adapters/chrome/component-contex
 import { ChromeNativeMessagingBridgeAdapter } from '@adapters/chrome/native-bridge';
 import { ChromeReviewChannel } from '@adapters/chrome/review-channel';
 import { ChromeScreenshotCaptureAdapter } from '@adapters/chrome/screenshot-capture';
+import { ChromeSourceMapContextAdapter } from '@adapters/chrome/source-map-context';
 import { IndexedDbReviewSessionRepository } from '@adapters/persistence/indexeddb/indexeddb-review-session-repository';
 import { ChromeRuntimeInfoAdapter } from '@adapters/runtime/chrome-runtime-info';
 import { CryptoIdGeneratorAdapter } from '@adapters/runtime/crypto-id-generator';
@@ -87,6 +88,7 @@ export function createAppContainer(): AppContainer {
   const channel = new ChromeReviewChannel();
   const screenshots = new ChromeScreenshotCaptureAdapter();
   const components = new ChromeComponentContextAdapter();
+  const sourceMaps = new ChromeSourceMapContextAdapter();
   const bridge = new ChromeNativeMessagingBridgeAdapter({ ids });
   const clipboard = new NavigatorClipboardAdapter();
 
@@ -100,7 +102,10 @@ export function createAppContainer(): AppContainer {
     loadOverlayState: (pageUrl) => loadOverlayState({ sessions }, { pageUrl }),
     addReviewComment: (input) => addReviewComment({ sessions, clock, ids }, input),
     captureCommentEvidence: (input) =>
-      captureCommentEvidence({ sessions, screenshots, components, clock, ids }, input),
+      captureCommentEvidence(
+        { sessions, screenshots, components, sourceMaps, clock, ids },
+        input,
+      ),
     updateReviewComment: (input) => updateReviewComment({ sessions, clock }, input),
     deleteReviewComment: (input) => deleteReviewComment({ sessions }, input),
     deleteReviewCommentAttachment: (input) =>

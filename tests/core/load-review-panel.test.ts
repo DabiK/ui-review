@@ -4,6 +4,7 @@ import {
   createFrameworkEvidence,
   createReviewComment,
   createReviewSession,
+  createSourceMapEvidence,
   loadReviewPanel,
   type Evidence,
   type ReviewComment,
@@ -199,6 +200,7 @@ describe('loadReviewPanel', () => {
         attachments: [],
         visualEvidence: null,
         frameworkEvidence: null,
+        sourceMapEvidence: null,
       },
     ]);
   });
@@ -215,6 +217,7 @@ describe('loadReviewPanel', () => {
         componentName: 'PricingCard',
         componentChain: ['PricingPage', 'PricingCard'],
         confidence: 'inferred',
+        sourceReference: null,
       },
     });
     const comment = { ...makeComment(session), evidence: [makeDomEvidence(), framework] };
@@ -227,6 +230,35 @@ describe('loadReviewPanel', () => {
       framework: 'react',
       componentName: 'PricingCard',
       componentChain: ['PricingPage', 'PricingCard'],
+    });
+  });
+
+  it('exposes the source map evidence of a comment', async () => {
+    const repository = new InMemoryReviewSessionRepository();
+    const session = makeSession('session-1');
+    const sourceMap = createSourceMapEvidence({
+      id: 'evidence-source-map',
+      commentId: 'comment-1',
+      capturedAt: '2026-09-18T10:05:00.000Z',
+      observation: {
+        sourceFile: '../src/PricingCard.tsx',
+        line: 42,
+        column: 3,
+        confidence: 'inferred',
+        reason: 'Resolved from the source map of https://example.com/static/js/main.js.',
+      },
+    });
+    const comment = { ...makeComment(session), evidence: [makeDomEvidence(), sourceMap] };
+    await repository.save({ ...session, comments: [comment] });
+
+    const panel = await loadReviewPanel(deps(repository), { selectedSessionId: 'session-1' });
+
+    expect(panel.comments[0]?.sourceMapEvidence).toEqual({
+      confidence: 'inferred',
+      sourceFile: '../src/PricingCard.tsx',
+      line: 42,
+      column: 3,
+      reason: 'Resolved from the source map of https://example.com/static/js/main.js.',
     });
   });
 

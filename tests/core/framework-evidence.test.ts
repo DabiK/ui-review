@@ -20,6 +20,7 @@ function observation(overrides: Partial<FrameworkObservation> = {}): FrameworkOb
     componentName: 'PricingCard',
     componentChain: ['PricingPage', 'PricingCard'],
     confidence: 'confirmed',
+    sourceReference: null,
     ...overrides,
   };
 }
@@ -105,6 +106,17 @@ describe('createFrameworkEvidence', () => {
     expect(evidence.payload.componentName?.length).toBeLessThanOrEqual(120);
     expect(evidence.payload.componentName?.endsWith('…')).toBe(true);
     expect(evidence.payload.componentChain).toHaveLength(8);
+  });
+
+  it('keeps the source reference out of the framework payload', () => {
+    const evidence = createFrameworkEvidence({
+      ...BASE,
+      observation: observation({
+        sourceReference: { fileName: 'src/PricingCard.tsx', line: 12, column: 5 },
+      }),
+    });
+
+    expect(evidence.payload).not.toHaveProperty('sourceReference');
   });
 
   it('is the only gate: raw createEvidence also validates framework payloads', () => {

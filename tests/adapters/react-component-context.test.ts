@@ -48,6 +48,7 @@ describe('detectPageComponentContext', () => {
       componentName: 'PricingCard',
       componentChain: ['App', 'PricingPage', 'PricingCard'],
       confidence: 'confirmed',
+      sourceReference: null,
     });
   });
 
@@ -63,6 +64,7 @@ describe('detectPageComponentContext', () => {
       componentName: 'Yt',
       componentChain: ['t', 'Yt'],
       confidence: 'inferred',
+      sourceReference: null,
     });
   });
 
@@ -76,6 +78,7 @@ describe('detectPageComponentContext', () => {
       componentName: null,
       componentChain: [],
       confidence: 'confirmed',
+      sourceReference: null,
     });
   });
 
@@ -91,6 +94,7 @@ describe('detectPageComponentContext', () => {
       framework: 'react',
       componentName: 'App',
       confidence: 'confirmed',
+      sourceReference: null,
     });
   });
 
@@ -124,6 +128,7 @@ describe('detectPageComponentContext', () => {
       componentName: 'App',
       componentChain: ['App'],
       confidence: 'confirmed',
+      sourceReference: null,
     });
   });
 
@@ -136,6 +141,7 @@ describe('detectPageComponentContext', () => {
       componentName: null,
       componentChain: [],
       confidence: 'unavailable',
+      sourceReference: null,
     });
   });
 
@@ -149,6 +155,7 @@ describe('detectPageComponentContext', () => {
       componentName: null,
       componentChain: [],
       confidence: 'inferred',
+      sourceReference: null,
     });
   });
 
@@ -158,9 +165,11 @@ describe('detectPageComponentContext', () => {
       componentName: null,
       componentChain: [],
       confidence: 'unavailable',
+      sourceReference: null,
     });
     expect(detectPageComponentContext('>>> not a selector')).toMatchObject({
       confidence: 'unavailable',
+      sourceReference: null,
     });
     expect(detectPageComponentContext('   ')).toMatchObject({ confidence: 'unavailable' });
   });
@@ -209,5 +218,95 @@ describe('detectPageComponentContext', () => {
 
     expect(observation.framework).toBe('react');
     expect(observation.componentChain.length).toBeLessThanOrEqual(8);
+  });
+
+  it('reads the development source reference of the nearest component', () => {
+    const button = mountButton();
+    button.id = 'save';
+    const card = namedFiber('PricingCard', {
+      _debugSource: {
+        fileName: 'webpack-internal:///./src/PricingCard.tsx',
+        lineNumber: 12,
+        // Babel exposes a 0-based column; evidence stores 1-based positions.
+        columnNumber: 4,
+      },
+    });
+    attachFiber(button, fiber({ type: 'button', return: card }));
+
+    expect(detectPageComponentContext('#save')).toEqual({
+      framework: 'react',
+      componentName: 'PricingCard',
+      componentChain: ['PricingCard'],
+      confidence: 'confirmed',
+      sourceReference: {
+        fileName: 'webpack-internal:///./src/PricingCard.tsx',
+        line: 12,
+        column: 5,
+      },
+    });
+  });
+
+  it('takes the source reference of an ancestor when the nearest one has none', () => {
+    const button = mountButton();
+    button.id = 'save';
+    const page = namedFiber('PricingPage', {
+      _debugSource: { fileName: '/src/pages/pricing.tsx', lineNumber: 8, columnNumber: 0 },
+    });
+    const card = namedFiber('PricingCard', { return: page });
+    attachFiber(button, fiber({ type: 'button', return: card }));
+
+    expect(detectPageComponentContext('#save').sourceReference).toEqual({
+      fileName: '/src/pages/pricing.tsx',
+      line: 8,
+      column: 1,
+    });
+  });
+
+  it('ignores unusable source reference fields instead of reporting them', () => {
+    const button = mountButton();
+    button.id = 'save';
+    attachFiber(
+      button,
+      fiber({
+        type: namedFiber('Card'),
+        _debugSource: { fileName: '   ', lineNumber: 0, columnNumber: -2 },
+      }),
+    );
+
+    expect(detectPageComponentContext('#save').sourceReference).toBeNull();
+  });
+
+  it('bounds a page-provided source file name', () => {
+    const button = mountButton();
+    button.id = 'save';
+    attachFiber(
+      button,
+      fiber({
+        type: namedFiber('Card'),
+        _debugSource: { fileName: 'S'.repeat(900), lineNumber: 1, columnNumber: 0 },
+      }),
+    );
+
+    const reference = detectPageComponentContext('#save').sourceReference;
+    expect(reference?.fileName.length).toBe(512);
+  });
+
+  it('keeps the component context when the source reference getter is hostile', () => {
+    const button = mountButton();
+    button.id = 'save';
+    const card = namedFiber('PricingCard');
+    Object.defineProperty(card, '_debugSource', {
+      enumerable: true,
+      configurable: true,
+      get() {
+        throw new Error('hostile source');
+      },
+    });
+    attachFiber(button, fiber({ type: 'button', return: card }));
+
+    const observation = detectPageComponentContext('#save');
+
+    expect(observation.componentName).toBe('PricingCard');
+    expect(observation.sourceReference).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ describeComponentContextPortContract({
         componentName: 'PricingCard',
         componentChain: ['PricingPage', 'PricingCard'],
         confidence: 'confirmed',
+        sourceReference: null,
       },
     }),
 });
@@ -26,6 +27,7 @@ describe('FakeComponentContextAdapter', () => {
       componentName: null,
       componentChain: [],
       confidence: 'unavailable',
+      sourceReference: null,
     });
   });
 
@@ -36,6 +38,7 @@ describe('FakeComponentContextAdapter', () => {
         componentName: 'VueCard',
         componentChain: ['VuePage', 'VueCard'],
         confidence: 'inferred',
+        sourceReference: null,
       },
     });
 
@@ -58,6 +61,7 @@ describe('FakeComponentContextAdapter', () => {
       componentName: 'Card',
       componentChain: ['Card'],
       confidence: 'inferred',
+      sourceReference: null,
     });
 
     await adapter.detect(VALID_COMPONENT_CONTEXT_REQUEST);

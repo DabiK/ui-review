@@ -39,6 +39,7 @@ function makeComment(overrides: Partial<CommentSummary> = {}): CommentSummary {
     attachments: [],
     visualEvidence: null,
     frameworkEvidence: null,
+    sourceMapEvidence: null,
     ...overrides,
   };
 }
@@ -590,6 +591,87 @@ describe('renderReviewPanel', () => {
     );
 
     expect(root.querySelector('.comment__framework')).toBeNull();
+  });
+
+  it('renders a directly observed source reference as detected', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({
+      sourceMapEvidence: {
+        confidence: 'confirmed',
+        sourceFile: 'webpack-internal:///./src/PricingCard.tsx',
+        line: 12,
+        column: 5,
+        reason: null,
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.textContent).toContain(
+      'Source map: detected — webpack-internal:///./src/PricingCard.tsx:12:5',
+    );
+  });
+
+  it('never labels a bundle-mapped source position as detected', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({
+      sourceMapEvidence: {
+        confidence: 'inferred',
+        sourceFile: '../src/PricingCard.tsx',
+        line: 42,
+        column: 3,
+        reason: 'Resolved from the source map of https://example.com/static/js/main.js.',
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.textContent).toContain(
+      'Source map: inferred — ../src/PricingCard.tsx:42:3 (best effort)',
+    );
+    expect(root.textContent).not.toContain('detected');
+  });
+
+  it('states an explicit unavailable source map', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({
+      sourceMapEvidence: {
+        confidence: 'unavailable',
+        sourceFile: null,
+        line: null,
+        column: null,
+        reason: 'No framework source reference was exposed by the page.',
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.textContent).toContain('Source map: unavailable');
+  });
+
+  it('shows no source map line when no evidence was recorded', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({ sourceMapEvidence: null });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.querySelector('.comment__source-map')).toBeNull();
   });
 
   it('surfaces an explicit notice instead of failing silently', () => {

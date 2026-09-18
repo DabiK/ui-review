@@ -1,4 +1,4 @@
-import type { FrameworkObservation } from '@core';
+import type { FrameworkObservation, SourceReference } from '@core';
 
 /**
  * Best-effort React and Next.js component context, executed inside the inspected page.
@@ -18,6 +18,9 @@ import type { FrameworkObservation } from '@core';
  * runtime fields, so whatever name survives minification is reported as `inferred`. Next.js
  * pages are React trees and flow through the same path; a `__NEXT_DATA__` payload is an
  * explicit `inferred` fallback when the clicked node is outside the React tree.
+ *
+ * The raw `_debugSource` reference (fileName/lineNumber/columnNumber) is passed along so the
+ * source-map adapter can resolve it; it carries no confidence by itself.
  */
 export function detectPageComponentContext(fingerprint: string): FrameworkObservation {
   type Fiber = Record<string, unknown>;
@@ -37,6 +40,7 @@ export function detectPageComponentContext(fingerprint: string): FrameworkObserv
   const MAX_WRAPPER_DEPTH = 6;
   const MAX_COMPONENT_CHAIN = 8;
   const MAX_COMPONENT_NAME_LENGTH = 120;
+  const MAX_SOURCE_FILE_LENGTH = 512;
 
   function unavailable(): FrameworkObservation {
     return {
@@ -44,6 +48,7 @@ export function detectPageComponentContext(fingerprint: string): FrameworkObserv
       componentName: null,
       componentChain: [],
       confidence: 'unavailable',
+      sourceReference: null,
     };
   }
 
@@ -118,6 +123,43 @@ export function detectPageComponentContext(fingerprint: string): FrameworkObserv
     return false;
   }
 
+  /**
+   * Reads the raw development source location of a fiber. `_debugSource` is untrusted page
+   * data and can be a hostile getter: any failure only loses the reference, never the
+   * component context.
+   */
+  function readSourceReference(fiber: Fiber): SourceReference | null {
+    let value: unknown;
+    try {
+      value = fiber['_debugSource'];
+    } catch {
+      return null;
+    }
+    if (!isRecord(value)) {
+      return null;
+    }
+
+    const fileName = value['fileName'];
+    if (typeof fileName !== 'string' || fileName.trim() === '') {
+      return null;
+    }
+
+    const lineNumber = value['lineNumber'];
+    const columnNumber = value['columnNumber'];
+    return {
+      fileName: fileName.slice(0, MAX_SOURCE_FILE_LENGTH),
+      line:
+        typeof lineNumber === 'number' && Number.isInteger(lineNumber) && lineNumber >= 1
+          ? lineNumber
+          : null,
+      // Babel and React expose a 0-based column; evidence stores 1-based positions.
+      column:
+        typeof columnNumber === 'number' && Number.isInteger(columnNumber) && columnNumber >= 0
+          ? columnNumber + 1
+          : null,
+    };
+  }
+
   function readFiberRecord(element: Element): Fiber | null {
     const record = element as unknown as Record<string, unknown>;
     for (const key of Object.keys(record)) {
@@ -162,15 +204,20 @@ export function detectPageComponentContext(fingerprint: string): FrameworkObserv
     readonly nearest: string | null;
     readonly chain: readonly string[];
     readonly development: boolean;
+    readonly sourceReference: SourceReference | null;
   } {
     const nearestFirst: string[] = [];
     let current: Fiber | null = start;
     let steps = 0;
     let development = false;
+    let sourceReference: SourceReference | null = null;
 
     while (current !== null && steps < MAX_FIBER_STEPS) {
       if (hasDevelopmentMarkers(current)) {
         development = true;
+      }
+      if (sourceReference === null) {
+        sourceReference = readSourceReference(current);
       }
       const name = componentName(current);
       if (name !== null && nearestFirst[nearestFirst.length - 1] !== name) {
@@ -185,6 +232,7 @@ export function detectPageComponentContext(fingerprint: string): FrameworkObserv
       nearest: nearestFirst[0] ?? null,
       chain: nearestFirst.slice(0, MAX_COMPONENT_CHAIN).reverse(),
       development,
+      sourceReference,
     };
   }
 
@@ -198,6 +246,7 @@ export function detectPageComponentContext(fingerprint: string): FrameworkObserv
       componentName: null,
       componentChain: [],
       confidence: 'inferred',
+      sourceReference: null,
     };
   }
 
@@ -221,6 +270,7 @@ export function detectPageComponentContext(fingerprint: string): FrameworkObserv
       componentName: walk.nearest,
       componentChain: walk.chain,
       confidence: walk.development ? 'confirmed' : 'inferred',
+      sourceReference: walk.sourceReference,
     };
   } catch {
     return unavailable();

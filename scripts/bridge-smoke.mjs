@@ -179,7 +179,18 @@ async function main() {
         priority: 'important',
         createdAt: '2026-09-18T10:01:00.000Z',
         updatedAt: '2026-09-18T10:01:00.000Z',
-        evidence: { dom: null, framework: null, sourceMap: null, visual: null },
+        evidence: {
+          dom: null,
+          framework: null,
+          sourceMap: {
+            confidence: 'inferred',
+            sourceFile: 'src/PricingCard.tsx',
+            line: 10,
+            column: 3,
+            reason: 'Resolved from the source map of https://example.com/static/js/main.js.',
+          },
+          visual: null,
+        },
         attachments: [
           {
             id: 'attachment-1',

@@ -2,12 +2,15 @@ import {
   createAttachment,
   createEvidence,
   createFrameworkEvidence,
+  createSourceMapEvidence,
   unavailableFrameworkObservation,
+  unavailableSourceMapObservation,
   type Attachment,
   type AttachmentKind,
   type Confidence,
   type Evidence,
   type FrameworkObservation,
+  type SourceMapObservation,
 } from '../model/evidence';
 import { DomainValidationError } from '../model/errors';
 import type { CommentId, SessionId } from '../model/ids';
@@ -22,16 +25,20 @@ import type {
   ScreenshotCapturePort,
   ScreenshotCaptureRequest,
 } from '../ports/screenshot-capture';
+import type { SourceMapContextPort, SourceMapResolution } from '../ports/source-map-context';
+import { isDirectSourceReference } from '../source-maps/source-reference';
 
 /**
  * Attaches the captured evidence of a pinned element to an existing comment: one viewport
- * screenshot, one element crop, the best-effort framework component context, and explicit
- * capture statuses. A capture failure is a recorded outcome, never a thrown error, so the
- * text/DOM comment stays usable.
+ * screenshot, one element crop, the best-effort framework component context, the source-map
+ * location when one can be resolved, and explicit capture statuses. A capture failure is a
+ * recorded outcome, never a thrown error, so the text/DOM comment stays usable.
  */
 
 const DEFAULT_FAILURE_REASON = 'The screenshot could not be captured.';
 const NO_TAB_REASON = 'Screenshots are unavailable because no browser tab context was provided.';
+const NO_SOURCE_REFERENCE_REASON = 'No framework source reference was exposed by the page.';
+const SOURCE_MAP_UNAVAILABLE_REASON = 'The source map could not be resolved.';
 
 export interface CommentEvidenceCaptureRequest extends ScreenshotCaptureRequest {
   /** Frame that reported the comment; `null` targets the tab main frame. */
@@ -51,6 +58,7 @@ export interface CaptureCommentEvidenceDeps {
   readonly sessions: ReviewSessionRepository;
   readonly screenshots: ScreenshotCapturePort;
   readonly components: ComponentContextPort;
+  readonly sourceMaps: SourceMapContextPort;
   readonly clock: ClockPort;
   readonly ids: IdGeneratorPort;
 }
@@ -77,6 +85,7 @@ export async function captureCommentEvidence(
   const capturedAt = deps.clock.now();
   const outcome = await captureScreenshots(deps.screenshots, input.capture);
   const framework = await detectComponentContext(deps.components, input.capture);
+  const sourceMap = await resolveSourceMapContext(deps.sourceMaps, session.pageUrl, framework);
 
   const viewportAttachment = buildAttachment(
     deps.ids,
@@ -116,11 +125,17 @@ export async function captureCommentEvidence(
     capturedAt,
     framework,
   );
+  const sourceMapEvidence = buildSourceMapEvidence(
+    deps.ids,
+    comment.id,
+    capturedAt,
+    sourceMap,
+  );
 
   const updated: ReviewComment = {
     ...comment,
     attachments: [...comment.attachments, ...attachments],
-    evidence: [...comment.evidence, visualEvidence, frameworkEvidence],
+    evidence: [...comment.evidence, visualEvidence, frameworkEvidence, sourceMapEvidence],
   };
 
   await deps.sessions.save({
@@ -191,6 +206,79 @@ function buildFrameworkEvidence(
       commentId,
       capturedAt,
       observation: unavailableFrameworkObservation(),
+    });
+  }
+}
+
+/**
+ * Source locations only make sense when the framework adapter exposed a reference: an
+ * arbitrary DOM node must never be given an invented file. A reference that already names a
+ * source file is directly observed; anything else is resolved through its source map by the
+ * adapter and explicitly inferred.
+ */
+async function resolveSourceMapContext(
+  sourceMaps: SourceMapContextPort,
+  pageUrl: string,
+  framework: FrameworkObservation,
+): Promise<SourceMapObservation> {
+  const reference = framework.sourceReference ?? null;
+  if (reference === null || typeof reference.fileName !== 'string') {
+    return unavailableSourceMapObservation(NO_SOURCE_REFERENCE_REASON);
+  }
+
+  if (isDirectSourceReference(reference.fileName)) {
+    return {
+      sourceFile: reference.fileName,
+      line: reference.line,
+      column: reference.column,
+      confidence: 'confirmed',
+      reason: null,
+    };
+  }
+
+  try {
+    return observationFromResolution(await sourceMaps.resolve({ pageUrl, reference }));
+  } catch {
+    // Resilience: source context is best effort and never blocks the annotation.
+    return unavailableSourceMapObservation(SOURCE_MAP_UNAVAILABLE_REASON);
+  }
+}
+
+function observationFromResolution(resolution: SourceMapResolution): SourceMapObservation {
+  if (resolution.kind === 'mapped') {
+    return {
+      sourceFile: resolution.sourceFile,
+      line: resolution.line,
+      column: resolution.column,
+      confidence: 'inferred',
+      reason: resolution.reason,
+    };
+  }
+  if (resolution.kind === 'unavailable') {
+    return unavailableSourceMapObservation(resolution.reason);
+  }
+  // A malformed adapter result must not be trusted as a source location.
+  return unavailableSourceMapObservation(SOURCE_MAP_UNAVAILABLE_REASON);
+}
+
+function buildSourceMapEvidence(
+  ids: IdGeneratorPort,
+  commentId: CommentId,
+  capturedAt: string,
+  observation: SourceMapObservation,
+): Evidence {
+  const id = ids.createId();
+  try {
+    return createSourceMapEvidence({ id, commentId, capturedAt, observation });
+  } catch (error) {
+    if (!(error instanceof DomainValidationError)) {
+      throw error;
+    }
+    return createSourceMapEvidence({
+      id,
+      commentId,
+      capturedAt,
+      observation: unavailableSourceMapObservation(SOURCE_MAP_UNAVAILABLE_REASON),
     });
   }
 }

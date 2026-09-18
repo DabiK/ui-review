@@ -578,8 +578,9 @@ body {
   padding-left: 8px;
 }
 
-/* Framework context is a discrete, honest margin note: no colour claim, only wording. */
-.comment__framework {
+/* Framework and source context are discrete, honest margin notes: no colour claim. */
+.comment__framework,
+.comment__source-map {
   border-left: 2px solid var(--rule);
   color: var(--meta);
   font-family: var(--mono);

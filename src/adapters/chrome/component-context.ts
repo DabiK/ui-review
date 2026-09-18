@@ -53,6 +53,26 @@ function isFrameworkObservation(value: unknown): value is FrameworkObservation {
     (confidence === 'confirmed' || confidence === 'inferred' || confidence === 'unavailable') &&
     (componentName === null || typeof componentName === 'string') &&
     Array.isArray(componentChain) &&
-    componentChain.every((entry) => typeof entry === 'string')
+    componentChain.every((entry) => typeof entry === 'string') &&
+    isSourceReference(candidate['sourceReference'])
+  );
+}
+
+function isSourceReference(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  if (typeof value !== 'object' || value === undefined) {
+    return false;
+  }
+
+  const reference = value as Record<string, unknown>;
+  const fileName = reference['fileName'];
+  const line = reference['line'];
+  const column = reference['column'];
+  return (
+    typeof fileName === 'string' &&
+    (line === null || (typeof line === 'number' && Number.isInteger(line) && line >= 1)) &&
+    (column === null || (typeof column === 'number' && Number.isInteger(column) && column >= 1))
   );
 }

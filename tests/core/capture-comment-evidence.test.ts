@@ -16,6 +16,7 @@ import {
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
 import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
+import { FakeSourceMapContextAdapter } from '@adapters/runtime/fake-source-map-context';
 
 const PAGE_URL = 'https://example.com/pricing';
 const VIEWPORT = { width: 1440, height: 900 };
@@ -65,11 +66,13 @@ function deps(
   repository: InMemoryReviewSessionRepository,
   screenshots: FakeScreenshotCaptureAdapter,
   components: FakeComponentContextAdapter = new FakeComponentContextAdapter(),
+  sourceMaps: FakeSourceMapContextAdapter = new FakeSourceMapContextAdapter(),
 ) {
   return {
     sessions: repository,
     screenshots,
     components,
+    sourceMaps,
     clock: new FixedClockAdapter('2026-09-18T10:06:00.000Z'),
     ids: new SequentialIdGeneratorAdapter('evidence'),
   };
@@ -103,7 +106,7 @@ describe('captureCommentEvidence', () => {
     expect(result.comment.attachments[0]).toMatchObject({ width: 1440, height: 900 });
     expect(result.comment.attachments[1]).toMatchObject({ width: 100, height: 32 });
 
-    expect(result.comment.evidence).toHaveLength(2);
+    expect(result.comment.evidence).toHaveLength(3);
     expect(result.comment.evidence[0]).toMatchObject({
       commentId: 'comment-1',
       confidence: 'confirmed',
@@ -114,6 +117,15 @@ describe('captureCommentEvidence', () => {
       commentId: 'comment-1',
       confidence: 'unavailable',
       payload: { type: 'framework', framework: 'unknown', componentName: null },
+    });
+    expect(result.comment.evidence[2]).toMatchObject({
+      commentId: 'comment-1',
+      confidence: 'unavailable',
+      payload: {
+        type: 'source-map',
+        sourceFile: null,
+        reason: 'No framework source reference was exposed by the page.',
+      },
     });
 
     const stored = await repository.findById('session-1');
@@ -129,6 +141,7 @@ describe('captureCommentEvidence', () => {
         componentName: 'PricingCard',
         componentChain: ['PricingPage', 'PricingCard'],
         confidence: 'confirmed',
+        sourceReference: null,
       },
     });
 
@@ -166,6 +179,7 @@ describe('captureCommentEvidence', () => {
         componentName: 'Yt',
         componentChain: ['t', 'Yt'],
         confidence: 'inferred',
+        sourceReference: null,
       },
     });
 
@@ -227,6 +241,203 @@ describe('captureCommentEvidence', () => {
     expect(result.comment.evidence[1]).toMatchObject({
       confidence: 'unavailable',
       payload: { type: 'framework', framework: 'unknown', componentName: null },
+    });
+  });
+
+  it('records a directly observed development source reference as confirmed', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const components = new FakeComponentContextAdapter({
+      observation: {
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingCard'],
+        confidence: 'confirmed',
+        sourceReference: {
+          fileName: 'webpack-internal:///./src/PricingCard.tsx',
+          line: 12,
+          column: 5,
+        },
+      },
+    });
+    const sourceMaps = new FakeSourceMapContextAdapter();
+
+    const result = await captureCommentEvidence(
+      deps(repository, screenshots, components, sourceMaps),
+      { sessionId: 'session-1', commentId: 'comment-1', capture: CAPTURE },
+    );
+
+    if (!result.ok) {
+      throw new Error('capture failed');
+    }
+
+    // A direct source reference needs no source-map request at all.
+    expect(sourceMaps.requests).toEqual([]);
+    expect(result.comment.evidence[2]).toMatchObject({
+      confidence: 'confirmed',
+      payload: {
+        type: 'source-map',
+        sourceFile: 'webpack-internal:///./src/PricingCard.tsx',
+        line: 12,
+        column: 5,
+        reason: null,
+      },
+    });
+  });
+
+  it('resolves a compiled reference through the source map port and marks it inferred', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const reference = {
+      fileName: 'https://example.com/_next/static/chunks/pricing.js',
+      line: 120,
+      column: 8,
+    };
+    const components = new FakeComponentContextAdapter({
+      observation: {
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingCard'],
+        confidence: 'inferred',
+        sourceReference: reference,
+      },
+    });
+    const sourceMaps = new FakeSourceMapContextAdapter({
+      resolution: {
+        kind: 'mapped',
+        sourceFile: '../src/PricingCard.tsx',
+        line: 42,
+        column: 3,
+        reason:
+          'Resolved from the source map of https://example.com/_next/static/chunks/pricing.js.',
+      },
+    });
+
+    const result = await captureCommentEvidence(
+      deps(repository, screenshots, components, sourceMaps),
+      { sessionId: 'session-1', commentId: 'comment-1', capture: CAPTURE },
+    );
+
+    if (!result.ok) {
+      throw new Error('capture failed');
+    }
+
+    expect(sourceMaps.requests).toEqual([{ pageUrl: PAGE_URL, reference }]);
+    expect(result.comment.evidence[2]).toMatchObject({
+      confidence: 'inferred',
+      payload: {
+        type: 'source-map',
+        sourceFile: '../src/PricingCard.tsx',
+        line: 42,
+        column: 3,
+        reason:
+          'Resolved from the source map of https://example.com/_next/static/chunks/pricing.js.',
+      },
+    });
+  });
+
+  it('keeps a missing or invalid map as an explicit unavailable result', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const components = new FakeComponentContextAdapter({
+      observation: {
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingCard'],
+        confidence: 'inferred',
+        sourceReference: {
+          fileName: 'https://example.com/static/js/main.js',
+          line: 3,
+          column: 2,
+        },
+      },
+    });
+    const sourceMaps = new FakeSourceMapContextAdapter({
+      resolution: {
+        kind: 'unavailable',
+        reason: 'No source map is published for https://example.com/static/js/main.js.',
+      },
+    });
+
+    const result = await captureCommentEvidence(
+      deps(repository, screenshots, components, sourceMaps),
+      { sessionId: 'session-1', commentId: 'comment-1', capture: CAPTURE },
+    );
+
+    if (!result.ok) {
+      throw new Error('capture failed');
+    }
+
+    expect(result.comment.evidence[2]).toMatchObject({
+      confidence: 'unavailable',
+      payload: {
+        type: 'source-map',
+        sourceFile: null,
+        reason: 'No source map is published for https://example.com/static/js/main.js.',
+      },
+    });
+    // The note and its other evidence survive a failed source-map resolution.
+    expect(result.comment.evidence[0]).toMatchObject({ payload: { type: 'visual' } });
+    expect(result.comment.text).not.toBe('');
+  });
+
+  it('does not ask for a source map when the capture has no tab context', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const sourceMaps = new FakeSourceMapContextAdapter();
+
+    const result = await captureCommentEvidence(
+      deps(repository, screenshots, new FakeComponentContextAdapter(), sourceMaps),
+      { sessionId: 'session-1', commentId: 'comment-1', capture: null },
+    );
+
+    if (!result.ok) {
+      throw new Error('capture failed');
+    }
+
+    expect(sourceMaps.requests).toEqual([]);
+    expect(result.comment.evidence[2]).toMatchObject({
+      confidence: 'unavailable',
+      payload: {
+        type: 'source-map',
+        reason: 'No framework source reference was exposed by the page.',
+      },
+    });
+  });
+
+  it('degrades a broken source-map port without losing the note', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const components = new FakeComponentContextAdapter({
+      observation: {
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingCard'],
+        confidence: 'inferred',
+        sourceReference: {
+          fileName: 'https://example.com/static/js/main.js',
+          line: 3,
+          column: 2,
+        },
+      },
+    });
+    const sourceMaps = new FakeSourceMapContextAdapter();
+    sourceMaps.resolve = async () => {
+      throw new Error('source-map adapter crash');
+    };
+
+    const result = await captureCommentEvidence(
+      deps(repository, screenshots, components, sourceMaps),
+      { sessionId: 'session-1', commentId: 'comment-1', capture: CAPTURE },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.comment.evidence[2]).toMatchObject({
+      confidence: 'unavailable',
+      payload: { type: 'source-map', reason: 'The source map could not be resolved.' },
     });
   });
 
@@ -396,7 +607,7 @@ describe('deleteReviewCommentAttachment', () => {
       return;
     }
     expect(removed.comment.attachments.map((attachment) => attachment.id)).toEqual([cropId]);
-    expect(removed.comment.evidence).toHaveLength(2);
+    expect(removed.comment.evidence).toHaveLength(3);
 
     const stored = await repository.findById('session-1');
     expect(stored?.comments[0]?.attachments.map((attachment) => attachment.id)).toEqual([cropId]);

@@ -20,6 +20,7 @@ import {
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
 import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
+import { FakeSourceMapContextAdapter } from '@adapters/runtime/fake-source-map-context';
 
 const PAGE_URL = 'https://example.com/pricing';
 const VIEWPORT = { width: 1440, height: 900 };
@@ -97,6 +98,7 @@ async function addComment(harness: Harness, text: string): Promise<string> {
         },
       }),
       components: new FakeComponentContextAdapter(),
+      sourceMaps: new FakeSourceMapContextAdapter(),
       clock: harness.clock,
       ids: harness.ids,
     },

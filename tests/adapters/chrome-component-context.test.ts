@@ -12,6 +12,11 @@ const OBSERVATION: FrameworkObservation = {
   componentName: 'PricingCard',
   componentChain: ['PricingPage', 'PricingCard'],
   confidence: 'confirmed',
+  sourceReference: {
+    fileName: 'webpack-internal:///./src/PricingCard.tsx',
+    line: 12,
+    column: 5,
+  },
 };
 
 type ExecuteScriptMock = ReturnType<typeof vi.fn>;
@@ -77,7 +82,19 @@ describe('ChromeComponentContextAdapter', () => {
       componentName: null,
       componentChain: [],
       confidence: 'unavailable',
+      sourceReference: null,
     });
+  });
+
+  it('rejects a page result with a malformed source reference', async () => {
+    executeScriptReturning({
+      ...OBSERVATION,
+      sourceReference: { fileName: 'src/App.tsx', line: 0, column: -1 },
+    });
+
+    await expect(
+      new ChromeComponentContextAdapter().detect(VALID_COMPONENT_CONTEXT_REQUEST),
+    ).resolves.toMatchObject({ confidence: 'unavailable', sourceReference: null });
   });
 
   it('degrades a transport failure into an explicit unavailable observation', async () => {

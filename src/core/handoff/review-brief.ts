@@ -1263,11 +1263,13 @@ function pushComment(
     }
   }
   if (sourceMap !== null) {
-    const location =
-      sourceMap.sourceFile === null
-        ? `unavailable (${sourceMap.reason ?? 'no source map'})`
-        : `${sourceMap.sourceFile}:${sourceMap.line ?? 0}:${sourceMap.column ?? 0}`;
-    lines.push(`Source map: ${sourceMap.confidence} — ${location}`);
+    if (sourceMap.confidence === 'unavailable') {
+      lines.push(`Source map: unavailable — ${sourceMap.reason ?? 'no source map'}`);
+    } else {
+      const location = `${sourceMap.sourceFile ?? 'unknown source'}:${sourceMap.line ?? 1}:${sourceMap.column ?? 1}`;
+      const reason = sourceMap.reason === null ? '' : ` (${sourceMap.reason})`;
+      lines.push(`Source map: ${sourceMap.confidence} — ${location}${reason}`);
+    }
   }
   if (visual !== null) {
     const parts = [

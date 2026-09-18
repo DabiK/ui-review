@@ -21,6 +21,7 @@ import {
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
 import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
+import { FakeSourceMapContextAdapter } from '@adapters/runtime/fake-source-map-context';
 import { FixedClockAdapter } from '@adapters/runtime/fixed-clock';
 import { SequentialIdGeneratorAdapter } from '@adapters/runtime/sequential-id-generator';
 import { StaticActivePageAdapter } from '@adapters/runtime/static-active-page';
@@ -47,6 +48,7 @@ function makeContainer(
   bus: InMemoryReviewChangeBus,
   screenshots: FakeScreenshotCaptureAdapter,
   components: FakeComponentContextAdapter = new FakeComponentContextAdapter(),
+  sourceMaps: FakeSourceMapContextAdapter = new FakeSourceMapContextAdapter(),
 ): ReviewMessageContainer {
   return {
     loadOverlayState: (pageUrl: string): Promise<OverlayState> =>
@@ -55,7 +57,7 @@ function makeContainer(
       addReviewComment({ sessions: repository, clock, ids }, input),
     captureCommentEvidence: (input: CaptureCommentEvidenceInput): Promise<CaptureCommentEvidenceResult> =>
       captureCommentEvidence(
-        { sessions: repository, screenshots, components, clock, ids },
+        { sessions: repository, screenshots, components, sourceMaps, clock, ids },
         input,
       ),
     stopReviewSession: (sessionId: SessionId): Promise<StopReviewSessionResult> =>
@@ -111,6 +113,11 @@ describe('overlay comment round-trip', () => {
         componentName: 'PricingCard',
         componentChain: ['PricingPage', 'PricingCard'],
         confidence: 'confirmed',
+        sourceReference: {
+          fileName: 'webpack-internal:///./src/PricingCard.tsx',
+          line: 12,
+          column: 5,
+        },
       },
     });
     await repository.save(
@@ -188,6 +195,13 @@ describe('overlay comment round-trip', () => {
           framework: 'react',
           componentName: 'PricingCard',
           componentChain: ['PricingPage', 'PricingCard'],
+        },
+        sourceMapEvidence: {
+          confidence: 'confirmed',
+          sourceFile: 'webpack-internal:///./src/PricingCard.tsx',
+          line: 12,
+          column: 5,
+          reason: null,
         },
       },
     ]);

@@ -6,11 +6,13 @@ import {
   createFrameworkEvidence,
   createReviewComment,
   createReviewSession,
+  createSourceMapEvidence,
   parseReviewBriefDocument,
   renderReviewBriefMarkdown,
   type FrameworkObservation,
   type ReviewComment,
   type ReviewSession,
+  type SourceMapObservation,
 } from '@core';
 import { InMemoryReviewSessionRepository } from '@adapters/persistence/in-memory/in-memory-review-session-repository';
 import { FixedClockAdapter } from '@adapters/runtime/fixed-clock';
@@ -22,6 +24,7 @@ import {
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
 import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
+import { FakeSourceMapContextAdapter } from '@adapters/runtime/fake-source-map-context';
 
 const STARTED_AT = '2026-09-18T10:00:00.000Z';
 const GENERATED_AT = '2026-09-18T10:06:00.000Z';
@@ -86,6 +89,7 @@ async function sessionWithScreenshots(): Promise<ReviewSession> {
         },
       }),
       components: new FakeComponentContextAdapter(),
+      sourceMaps: new FakeSourceMapContextAdapter(),
       clock,
       ids,
     },
@@ -391,6 +395,7 @@ describe('framework evidence in the brief', () => {
       componentName: 'PricingCard',
       componentChain: ['PricingPage', 'PricingCard'],
       confidence: 'inferred',
+      sourceReference: null,
     });
 
     const bundle = buildReviewBrief(session, { generatedAt: GENERATED_AT });
@@ -416,6 +421,7 @@ describe('framework evidence in the brief', () => {
       componentName: null,
       componentChain: [],
       confidence: 'unavailable',
+      sourceReference: null,
     });
 
     const markdown = renderReviewBriefMarkdown(
@@ -425,5 +431,96 @@ describe('framework evidence in the brief', () => {
 
     expect(markdown).toContain('Framework context: unavailable');
     expect(markdown).not.toContain('unknown component');
+  });
+});
+
+describe('source map evidence in the brief', () => {
+  function sessionWithSourceMap(observation: SourceMapObservation): ReviewSession {
+    const comment: ReviewComment = {
+      ...createReviewComment({
+        id: 'comment-1',
+        sessionId: 'session-1',
+        text: 'The card spacing is off.',
+        pageUrl: PAGE_URL,
+        viewport: VIEWPORT,
+        createdAt: STARTED_AT,
+      }),
+      evidence: [
+        createSourceMapEvidence({
+          id: 'evidence-source-map',
+          commentId: 'comment-1',
+          capturedAt: STARTED_AT,
+          observation,
+        }),
+      ],
+    };
+    return { ...makeSession(), comments: [comment] };
+  }
+
+  it('serializes a resolved mapping and renders it as inferred, not exact truth', () => {
+    const session = sessionWithSourceMap({
+      sourceFile: '../src/PricingCard.tsx',
+      line: 42,
+      column: 3,
+      confidence: 'inferred',
+      reason: 'Resolved from the source map of https://example.com/static/js/main.js.',
+    });
+
+    const bundle = buildReviewBrief(session, { generatedAt: GENERATED_AT });
+
+    expect(bundle.brief.comments[0]?.evidence.sourceMap).toEqual({
+      confidence: 'inferred',
+      sourceFile: '../src/PricingCard.tsx',
+      line: 42,
+      column: 3,
+      reason: 'Resolved from the source map of https://example.com/static/js/main.js.',
+    });
+
+    const markdown = renderReviewBriefMarkdown(bundle.brief, pathsFor());
+    expect(markdown).toContain(
+      'Source map: inferred — ../src/PricingCard.tsx:42:3 ' +
+        '(Resolved from the source map of https://example.com/static/js/main.js.)',
+    );
+
+    const parsed = parseReviewBriefDocument(JSON.parse(JSON.stringify(bundle.brief)));
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('renders a directly observed source reference as confirmed', () => {
+    const session = sessionWithSourceMap({
+      sourceFile: 'webpack-internal:///./src/PricingCard.tsx',
+      line: 12,
+      column: 5,
+      confidence: 'confirmed',
+      reason: null,
+    });
+
+    const markdown = renderReviewBriefMarkdown(
+      buildReviewBrief(session, { generatedAt: GENERATED_AT }).brief,
+      pathsFor(),
+    );
+
+    expect(markdown).toContain(
+      'Source map: confirmed — webpack-internal:///./src/PricingCard.tsx:12:5',
+    );
+  });
+
+  it('states an explicit unavailable source map with its reason', () => {
+    const session = sessionWithSourceMap({
+      sourceFile: null,
+      line: null,
+      column: null,
+      confidence: 'unavailable',
+      reason: 'No source map is published for https://example.com/static/js/main.js.',
+    });
+
+    const markdown = renderReviewBriefMarkdown(
+      buildReviewBrief(session, { generatedAt: GENERATED_AT }).brief,
+      pathsFor(),
+    );
+
+    expect(markdown).toContain(
+      'Source map: unavailable — No source map is published for https://example.com/static/js/main.js.',
+    );
   });
 });

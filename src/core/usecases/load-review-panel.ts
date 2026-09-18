@@ -66,6 +66,19 @@ export interface FrameworkEvidenceSummary {
   readonly componentChain: readonly string[];
 }
 
+/**
+ * Source location attached to a comment. `confirmed` is a reference directly observed in
+ * development metadata; `inferred` was resolved through a source map from a compiled
+ * location, so the UI labels it as best effort and never as an exact source relation.
+ */
+export interface SourceMapEvidenceSummary {
+  readonly confidence: Confidence;
+  readonly sourceFile: string | null;
+  readonly line: number | null;
+  readonly column: number | null;
+  readonly reason: string | null;
+}
+
 export interface CommentSummary {
   readonly id: CommentId;
   readonly text: string;
@@ -81,6 +94,8 @@ export interface CommentSummary {
   readonly visualEvidence: VisualEvidenceSummary | null;
   /** Best-effort framework context observed for this comment, when one was recorded. */
   readonly frameworkEvidence: FrameworkEvidenceSummary | null;
+  /** Explicit source location of this comment, when one was resolved or failed. */
+  readonly sourceMapEvidence: SourceMapEvidenceSummary | null;
 }
 
 export interface ReviewPanelState {
@@ -197,6 +212,7 @@ function toCommentSummary(comment: ReviewComment): CommentSummary {
     attachments: comment.attachments.map(toAttachmentSummary),
     visualEvidence: visualEvidence(comment),
     frameworkEvidence: frameworkEvidence(comment),
+    sourceMapEvidence: sourceMapEvidence(comment),
   };
 }
 
@@ -238,6 +254,22 @@ function frameworkEvidence(comment: ReviewComment): FrameworkEvidenceSummary | n
       framework: evidence.payload.framework,
       componentName: evidence.payload.componentName,
       componentChain: [...evidence.payload.componentChain],
+    };
+  }
+  return null;
+}
+
+function sourceMapEvidence(comment: ReviewComment): SourceMapEvidenceSummary | null {
+  for (const evidence of comment.evidence) {
+    if (evidence.payload.type !== 'source-map') {
+      continue;
+    }
+    return {
+      confidence: evidence.confidence,
+      sourceFile: evidence.payload.sourceFile,
+      line: evidence.payload.line,
+      column: evidence.payload.column,
+      reason: evidence.payload.reason,
     };
   }
   return null;

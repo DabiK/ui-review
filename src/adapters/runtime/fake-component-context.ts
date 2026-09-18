@@ -37,6 +37,8 @@ export class FakeComponentContextAdapter implements ComponentContextPort {
     return {
       ...this.observation,
       componentChain: [...this.observation.componentChain],
+      sourceReference:
+        this.observation.sourceReference === null ? null : { ...this.observation.sourceReference },
     };
   }
 }

@@ -21,6 +21,15 @@ function expectWellShapedObservation(observation: FrameworkObservation): void {
   if (observation.componentName !== null) {
     expect(observation.componentName.trim()).not.toBe('');
   }
+  if (observation.sourceReference !== null) {
+    expect(observation.sourceReference.fileName.trim()).not.toBe('');
+    if (observation.sourceReference.line !== null) {
+      expect(observation.sourceReference.line).toBeGreaterThanOrEqual(1);
+    }
+    if (observation.sourceReference.column !== null) {
+      expect(observation.sourceReference.column).toBeGreaterThanOrEqual(1);
+    }
+  }
 }
 
 /** Behaviour every `ComponentContextPort` implementation must provide. */

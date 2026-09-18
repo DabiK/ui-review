@@ -47,6 +47,13 @@ const harness = vi.hoisted(() => {
       componentName: 'CheckoutForm',
       componentChain: ['CheckoutPage', 'CheckoutForm'],
     },
+    sourceMapEvidence: {
+      confidence: 'confirmed',
+      sourceFile: 'webpack-internal:///./src/CheckoutForm.tsx',
+      line: 24,
+      column: 3,
+      reason: null,
+    },
   };
 
   const clearedSessions: string[] = [];
