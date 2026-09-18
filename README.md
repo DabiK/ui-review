@@ -71,10 +71,11 @@ IDs and to report one result per ID. Export failures (bridge absent, clipboard r
 shown explicitly and never modify or delete the stored review. The directory is temporary:
 delete it once the agent is done.
 
-The Session section always shows the local bridge state. A ready bridge renders as a quiet
-`Local bridge ready — v0.1.0 · platform` line; when it is missing or is not the build this
-extension ships with, the handoff is disabled and the panel explains what to install, with a
-**Check again** action that re-runs the health check without reloading the panel.
+The Session section always shows the local bridge state: a quiet `Local bridge` label with
+`Ready — v0.1.0 · platform` next to it when it is up to date. When it is missing or is not the
+build this extension ships with, the handoff is disabled and the panel explains what to
+install, with a **Check again** action that re-runs the health check without reloading the
+panel.
 
 Every saved note also carries local evidence: a curated DOM anchor (fingerprint, ancestry,
 visible text, role/name, allowlisted attributes, bounding box, viewport, computed styles) and

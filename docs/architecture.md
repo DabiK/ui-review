@@ -571,8 +571,9 @@ under `tests/fixtures` exercise these presentation adapters without entering pro
    **Clear session** (with confirmation) deletes it.
 5. Install the bridge (`npm run bridge:install` for development, or the packaged installer
    from `release/`, then reload the extension). The Session section shows the bridge state
-   (`Local bridge ready — v… · platform`); when it is missing or incompatible the handoff is
-   disabled, the panel explains what to install and **Check again** re-runs the health check.
+   (`Local bridge` plus `Ready — v… · platform`); when it is missing or incompatible the
+   handoff is disabled, the panel explains what to install and **Check again** re-runs the
+   health check.
    Click **Copy agent brief** to materialize the brief and copy it; the panel shows the
    temporary handoff directory, whose `review.md`, `review.json` and screenshots can be handed
    to a coding agent.
