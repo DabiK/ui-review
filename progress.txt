@@ -165,4 +165,4 @@ Décisions :
   (hors périmètre #2, à traiter dans un ticket UI ultérieur si besoin).
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
-contrat, suivi par l'issue #12.
+contrat, suivi par l'issue #12. Issue #2 fermée sur le commit fbeb2ef.
