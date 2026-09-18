@@ -17,10 +17,15 @@ export {
 
 export {
   CONFIDENCE_LEVELS,
+  createDomEvidence,
+  createEvidence,
   type Attachment,
   type AttachmentKind,
   type AttachmentStorage,
   type Confidence,
+  type CreateDomEvidenceInput,
+  type CreateEvidenceInput,
+  type DomAnchor,
   type DomEvidence,
   type Evidence,
   type EvidencePayload,
@@ -35,10 +40,14 @@ export {
   COMMENT_PRIORITIES,
   DEFAULT_COMMENT_CATEGORY,
   DEFAULT_COMMENT_PRIORITY,
+  assertCommentCategory,
+  assertCommentPriority,
   createReviewComment,
+  reviseReviewComment,
   type CommentCategory,
   type CommentPriority,
   type CreateReviewCommentInput,
+  type ReviseReviewCommentInput,
   type ReviewComment,
 } from './model/review-comment';
 
@@ -82,9 +91,36 @@ export {
 } from './usecases/session-lifecycle';
 
 export {
+  addReviewComment,
+  deleteReviewComment,
+  updateReviewComment,
+  type AddReviewCommentDeps,
+  type AddReviewCommentInput,
+  type AddReviewCommentResult,
+  type CommentValidationFailure,
+  type DeleteReviewCommentDeps,
+  type DeleteReviewCommentInput,
+  type DeleteReviewCommentResult,
+  type UpdateReviewCommentDeps,
+  type UpdateReviewCommentInput,
+  type UpdateReviewCommentResult,
+} from './usecases/review-comments';
+
+export {
+  loadOverlayState,
+  type LoadOverlayStateDeps,
+  type LoadOverlayStateInput,
+  type OverlayAnchor,
+  type OverlayComment,
+  type OverlayState,
+} from './usecases/load-overlay-state';
+
+export {
   loadReviewPanel,
   type ActivePageSummary,
+  type CommentSummary,
   type LoadReviewPanelDeps,
+  type LoadReviewPanelInput,
   type ReviewPanelState,
   type SessionSummary,
 } from './usecases/load-review-panel';

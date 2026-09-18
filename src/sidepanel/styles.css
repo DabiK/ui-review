@@ -393,3 +393,113 @@ body {
   margin: 16px 0 0;
   padding: 9px 11px;
 }
+
+/* Notes — issue #3. Numbered comment rows separated by fine rules, no cards. */
+
+.comment-list {
+  border-top: 1px solid var(--rule);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.comment {
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.comment__index {
+  color: var(--index);
+  font-family: var(--mono);
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  min-width: 26px;
+}
+
+.comment__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.comment__meta {
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.comment__text {
+  font-family: var(--serif);
+  font-size: 15px;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.comment__anchor,
+.comment__time {
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.comment__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.comment-form {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.field-row {
+  display: flex;
+  gap: 10px;
+}
+
+.field--inline {
+  align-items: flex-start;
+  border-top: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.field--inline .field__label {
+  width: auto;
+}
+
+.field--inline .field__input {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.field__input--multiline {
+  font-family: var(--sans);
+  resize: vertical;
+}
+
+.confirm--inline {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--index);
+  margin-top: 10px;
+  padding: 8px 10px;
+}

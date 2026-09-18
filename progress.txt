@@ -43,7 +43,7 @@ de vérité, le détail complet de chaque tâche y est.
 |---|-------|--------|
 | 1 | Bootstrap clean architecture + agent workflow | DONE |
 | 2 | Session lifecycle in side panel | DONE |
-| 3 | Generic DOM click-to-pin review | TODO |
+| 3 | Generic DOM click-to-pin review | DONE |
 | 4 | Evidence capture and privacy controls | TODO |
 | 5 | Native Messaging bridge and artifact store | TODO |
 | 6 | Copy agent brief and materialize handoff | TODO |
@@ -166,3 +166,74 @@ Décisions :
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
 contrat, suivi par l'issue #12. Issue #2 fermée sur le commit fbeb2ef.
+
+### Itération 3 — Issue #3 (click-to-pin générique sur n'importe quel élément)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 154 tests / 22 fichiers, build double).
+QA réelle faite dans Chrome sur le vrai bundle content script servi localement (fake
+`chrome.runtime` côté page) : overlay absent sans session active, highlight au survol, clic
+intercepté + composer, défauts `UI`/`important`, texte vide refusé avec erreur inline,
+sauvegarde → commentaire + pin `01`, `Esc` annule, `Shift+Esc` stoppe la session et rend la
+page interactive, pin restauré après reload. QA visuelle du side panel (liste, édition,
+confirmation) via un harnais gitignoré jetable, supprimé après usage.
+
+Livré :
+
+- Cœur : `createEvidence`/`createDomEvidence` (payload DOM validé : fingerprint non blank,
+  rect fini, viewport > 0) et `reviseReviewComment` ; `assertCommentCategory` /
+  `assertCommentPriority` pour refuser les entrées non typées.
+- Cœur : use cases `addReviewComment` (session active + page identique, ancrage DOM assemblé
+  en évidence `confirmed` liée au comment id), `updateReviewComment`, `deleteReviewComment` ;
+  erreurs typées `{ ok: false, reason }`, jamais d'exception attendue.
+- Cœur : read model `loadOverlayState` (session active de l'URL + commentaires indexés 1-based
+  + ancre réduite) ; `loadReviewPanel({ selectedSessionId? })` renvoie désormais la sélection
+  effective (`selectedSession`) et les commentaires (`comments`) — la vue ne résout plus la
+  sélection elle-même.
+- Overlay page (`src/content/`, délégué à un subagent puis relu/intégré) : shadow DOM isolé,
+  highlight au survol via `event.target` (host en `pointer-events: none`), clic → composer
+  inline (`ADD A NOTE`, textarea, selects catégorie/priorité, `Save note`/`Cancel`),
+  `Ctrl/Cmd+Enter` sauvegarde, `Esc` annule, `Shift+Esc` stoppe le mode review, badge
+  `Exit review mode`, pins numérotés repositionnés au scroll, `unmount` idempotent.
+- Ancre DOM minimale capturée dès #3 (fingerprint CSS stable, ancestry, texte, role, bbox,
+  viewport) sous forme d'`Evidence` DOM. `attributes` et `computedStyles` restent vides : #4
+  les remplira avec la redaction.
+- Transport : messages namespacés + guards (`ui-review:overlay-sync`, `comment-create`,
+  `stop-session`, `review-changed`) dans `src/adapters/chrome/review-messages.ts` ; helpers
+  Chrome (`review-messaging.ts`), routeur pur testable + register
+  (`review-message-router.ts`), channel `ChromeReviewChannel`.
+- Application : gateways `ReviewChangeBroadcaster`/`ReviewChangeSubscription` déclarés dans
+  `src/app/gateways.ts` (pas des ports du domaine : aucune décision métier) avec deux
+  implémentations réelles (`ChromeReviewChannel`, `InMemoryReviewChangeBus`) ; container
+  étendu (commentaires, overlay, souscription, notifications) ; le service worker enregistre
+  le routeur.
+- Build : le content script MV3 ne peut pas être un module ES → seconde passe
+  `vite.content.config.ts` (IIFE `dist/content-script.js`), `npm run build` enchaîne les deux
+  passes et `npm run dev` lance les deux watchers (`scripts/dev.mjs`). `manifest.json` déclare
+  `content_scripts` sur `http(s)` uniquement, `run_at: document_idle`.
+- Side panel : section `03 Notes (n)` (index, `CATÉGORIE · P1|P2|P3`, texte serif, ancre,
+  horodatage), édition inline (textarea + selects, texte requis) et suppression en deux étapes
+  avec focus déplacé ; section des sessions passée à `04`. Le panneau se recharge
+  automatiquement quand la page crée un commentaire.
+- Tests : 22 fichiers / 154 tests, dont `review-comments`, `load-overlay-state`,
+  `comment-round-trip` (routeur réel + use cases réels + relecture « après reload »),
+  `review-message-router` (routeur pur), `in-memory-review-change-bus`, `tests/content/*`
+  (dom-anchor, overlay, bootstrap), vue UI (notes, édition, suppression) et manifest.
+
+Décisions :
+
+- Le mode review est piloté par un seul état de vérité : la session active. `Shift+Esc`
+  stoppe la session (le panneau la voit passer à `stopped`), il ne désactive pas l'overlay
+  localement.
+- Les pins de #3 sont des marqueurs non interactifs ; l'édition/suppression se fait dans le
+  panneau (pas d'édition depuis la page).
+- Le fingerprint CSS (`#id` unique sinon chemin `tag:nth-of-type(n)` jusqu'à un ancêtre
+  identifié) sert à la fois d'ancre et de clé de restauration ; `resolveAnchor` est tolérant
+  (sélecteur invalide → `null`, pin non affiché).
+- Les messages de transport sont validés par des type guards avant tout use case ; pour
+  `comment-create`/`stop-session`, le SW refuse un message dont l'URL d'expéditeur diffère de
+  l'URL déclarée.
+- `npm run dev` lance deux builds Vite en parallèle via un script Node sans dépendance
+  (`scripts/dev.mjs`), portable macOS/Windows.
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
+contrat (issue #12). Issue #3 fermée après ce commit.

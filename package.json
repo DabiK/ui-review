@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Local-first Chrome UI review annotations with agent-ready handoff",
   "scripts": {
-    "dev": "vite build --watch --mode development",
-    "build": "vite build",
+    "dev": "node scripts/dev.mjs",
+    "build": "vite build && vite build --config vite.content.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

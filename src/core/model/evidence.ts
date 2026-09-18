@@ -1,4 +1,6 @@
 import type { CommentId, EvidenceId, AttachmentId } from './ids';
+import { DomainValidationError } from './errors';
+import { assertIsoTimestamp, assertNonBlank, assertPositiveInteger } from './invariants';
 
 /**
  * Confidence attached to every piece of captured evidence.
@@ -87,4 +89,97 @@ export interface Attachment {
   readonly byteLength: number;
   readonly createdAt: string;
   readonly storage: AttachmentStorage;
+}
+
+/** The DOM anchor measured on the page, without the evidence envelope. */
+export type DomAnchor = Omit<DomEvidence, 'type'>;
+
+export interface CreateEvidenceInput {
+  readonly id: EvidenceId;
+  readonly commentId: CommentId;
+  readonly capturedAt: string;
+  readonly confidence: Confidence;
+  readonly payload: EvidencePayload;
+}
+
+/**
+ * Assembles one piece of evidence so callers never build the envelope by hand. The payload
+ * shape decides which fields are validated.
+ */
+export function createEvidence(input: CreateEvidenceInput): Evidence {
+  const id = assertNonBlank(input.id, 'id');
+  const commentId = assertNonBlank(input.commentId, 'commentId');
+  const capturedAt = assertIsoTimestamp(input.capturedAt, 'capturedAt');
+
+  if (input.payload.type === 'dom') {
+    return {
+      id,
+      commentId,
+      confidence: input.confidence,
+      capturedAt,
+      payload: assertDomEvidence(input.payload),
+    };
+  }
+
+  return { id, commentId, confidence: input.confidence, capturedAt, payload: input.payload };
+}
+
+export interface CreateDomEvidenceInput {
+  readonly id: EvidenceId;
+  readonly commentId: CommentId;
+  readonly capturedAt: string;
+  readonly anchor: DomAnchor;
+  readonly confidence?: Confidence;
+}
+
+/** Creates the direct DOM observation captured when a reviewer pins an element. */
+export function createDomEvidence(input: CreateDomEvidenceInput): Evidence {
+  return createEvidence({
+    id: input.id,
+    commentId: input.commentId,
+    capturedAt: input.capturedAt,
+    confidence: input.confidence ?? 'confirmed',
+    payload: { type: 'dom', ...input.anchor },
+  });
+}
+
+function assertDomEvidence(value: DomEvidence): DomEvidence {
+  return {
+    type: 'dom',
+    fingerprint: assertNonBlank(value.fingerprint, 'fingerprint'),
+    ancestry: [...value.ancestry],
+    text: value.text,
+    role: value.role,
+    accessibleName: value.accessibleName,
+    attributes: { ...value.attributes },
+    boundingBox: assertRect(value.boundingBox, 'boundingBox'),
+    viewport: {
+      width: assertPositiveInteger(value.viewport.width, 'viewport.width'),
+      height: assertPositiveInteger(value.viewport.height, 'viewport.height'),
+    },
+    computedStyles: { ...value.computedStyles },
+  };
+}
+
+function assertRect(value: Rect, field: string): Rect {
+  return {
+    x: assertFiniteNumber(value.x, `${field}.x`),
+    y: assertFiniteNumber(value.y, `${field}.y`),
+    width: assertNonNegativeNumber(value.width, `${field}.width`),
+    height: assertNonNegativeNumber(value.height, `${field}.height`),
+  };
+}
+
+function assertFiniteNumber(value: number, field: string): number {
+  if (!Number.isFinite(value)) {
+    throw new DomainValidationError(field, `${field} must be a finite number`);
+  }
+  return value;
+}
+
+function assertNonNegativeNumber(value: number, field: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new DomainValidationError(field, `${field} must be a non-negative number`);
+  }
+  return value;
 }

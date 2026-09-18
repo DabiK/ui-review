@@ -8,6 +8,11 @@ interface ManifestShape {
   readonly version: string;
   readonly permissions: readonly string[];
   readonly background: { readonly service_worker: string; readonly type: string };
+  readonly content_scripts: readonly {
+    readonly matches: readonly string[];
+    readonly js: readonly string[];
+    readonly run_at: string;
+  }[];
   readonly side_panel: { readonly default_path: string };
 }
 
@@ -38,5 +43,14 @@ describe('extension manifest', () => {
   it('points at entry points that exist in the repository', () => {
     expect(readRepoFile(manifest.side_panel.default_path)).toContain('id="app"');
     expect(readRepoFile('src/background/service-worker.ts').length).toBeGreaterThan(0);
+    expect(readRepoFile('src/content/index.ts').length).toBeGreaterThan(0);
+  });
+
+  it('injects the overlay content script on http(s) pages only', () => {
+    expect(manifest.content_scripts).toHaveLength(1);
+    const entry = manifest.content_scripts[0];
+    expect(entry?.matches).toEqual(['http://*/*', 'https://*/*']);
+    expect(entry?.js).toEqual(['content-script.js']);
+    expect(entry?.run_at).toBe('document_idle');
   });
 });

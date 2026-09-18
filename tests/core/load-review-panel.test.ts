@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createDomEvidence,
   createReviewComment,
   createReviewSession,
   loadReviewPanel,
+  type Evidence,
   type ReviewComment,
   type ReviewSession,
 } from '@core';
@@ -38,6 +40,25 @@ function makeComment(session: ReviewSession): ReviewComment {
   });
 }
 
+function makeDomEvidence(): Evidence {
+  return createDomEvidence({
+    id: 'evidence-1',
+    commentId: 'comment-1',
+    capturedAt: '2026-09-18T10:05:00.000Z',
+    anchor: {
+      fingerprint: 'main > button',
+      ancestry: ['main'],
+      text: 'Save',
+      role: 'button',
+      accessibleName: null,
+      attributes: {},
+      boundingBox: { x: 10, y: 20, width: 100, height: 32 },
+      viewport: { width: 1440, height: 900 },
+      computedStyles: {},
+    },
+  });
+}
+
 function deps(repository: InMemoryReviewSessionRepository, page = PAGE) {
   return { sessions: repository, pages: new StaticActivePageAdapter(page), runtimeInfo };
 }
@@ -64,6 +85,8 @@ describe('loadReviewPanel', () => {
         eligible: true,
       },
       currentSession: null,
+      selectedSession: null,
+      comments: [],
       sessions: [],
     });
   });
@@ -152,5 +175,49 @@ describe('loadReviewPanel', () => {
 
     expect(panel.activePage).toBeNull();
     expect(panel.currentSession).toBeNull();
+  });
+
+  it('returns the comments of the selected session with their anchor label', async () => {
+    const repository = new InMemoryReviewSessionRepository();
+    const session = makeSession('session-1');
+    const comment = { ...makeComment(session), evidence: [makeDomEvidence()] };
+    await repository.save({ ...session, comments: [comment] });
+
+    const panel = await loadReviewPanel(deps(repository), { selectedSessionId: 'session-1' });
+
+    expect(panel.selectedSession?.id).toBe('session-1');
+    expect(panel.comments).toEqual([
+      {
+        id: 'comment-1',
+        text: 'The primary action is not aligned with the title.',
+        category: 'UI',
+        priority: 'important',
+        createdAt: '2026-09-18T10:05:00.000Z',
+        updatedAt: '2026-09-18T10:05:00.000Z',
+        anchorLabel: 'Save',
+      },
+    ]);
+  });
+
+  it('selects another stored session and exposes its own comments', async () => {
+    const repository = new InMemoryReviewSessionRepository();
+    const first = makeSession('session-1');
+    const second = makeSession('session-2', { startedAt: '2026-09-18T11:00:00.000Z' });
+    await repository.save({ ...first, comments: [makeComment(first)] });
+    await repository.save(second);
+
+    const panel = await loadReviewPanel(deps(repository), { selectedSessionId: 'session-2' });
+
+    expect(panel.selectedSession?.id).toBe('session-2');
+    expect(panel.comments).toEqual([]);
+  });
+
+  it('falls back to the current session when the requested selection disappeared', async () => {
+    const repository = new InMemoryReviewSessionRepository();
+    await repository.save(makeSession('session-1'));
+
+    const panel = await loadReviewPanel(deps(repository), { selectedSessionId: 'missing' });
+
+    expect(panel.selectedSession?.id).toBe('session-1');
   });
 });

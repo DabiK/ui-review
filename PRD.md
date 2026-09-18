@@ -84,7 +84,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Review the state transitions as a single core use case; UI must not mutate persistence directly.
   >
 
-- [ ] #3 — Annotate any page element with click-to-pin (labels: area:extension, area:ux, blocked)
+- [x] #3 — Annotate any page element with click-to-pin (labels: area:extension, area:ux, blocked)
 
   **Issue #3 — détail complet**
   > # 03 — Annotate any page element with click-to-pin

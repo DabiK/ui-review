@@ -33,8 +33,8 @@ npm run verify   # lint → typecheck → unit tests → build
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Rebuild `dist/` on change (reload the extension to apply) |
-| `npm run build` | Production build into `dist/` |
+| `npm run dev` | Rebuild both bundles (`dist/`) on change; reload the extension to apply |
+| `npm run build` | Production build into `dist/` (side panel + service worker + content script) |
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run lint` | ESLint, includes the core boundary rules |
 | `npm test` | Unit and architecture tests |
@@ -44,8 +44,15 @@ Developer mode, click **Load unpacked** and select `dist/`. Clicking the toolbar
 the side panel. On an http(s) page, **Start review** creates a session named after the
 hostname and timestamp; sessions are stored in the browser profile, survive panel and page
 reloads, can be renamed and stopped, and are only removed — one at a time, after confirmation
-— with **Clear session**. The focused tab URL is read through the `tabs` permission and never
-leaves the machine.
+— with **Clear session**.
+
+While a review is active, the page overlay highlights the element under the pointer: click it
+to open the inline composer (`Escape` cancels), write the note and save it with category and
+priority — `UI` and `important` are the defaults. The note becomes a numbered pin on the page
+and a numbered row in the panel, where it can be edited or deleted; pins and rows are rebuilt
+from persisted data after a page or panel reload. `Shift+Escape` (or **Exit review mode**)
+leaves review mode, and no listener or overlay exists on the page while review mode is off.
+The focused tab URL is read through the `tabs` permission and never leaves the machine.
 
 The module map, public interfaces and the dependency rule are documented in
 [`docs/architecture.md`](docs/architecture.md). The agent workflow (one implementation agent

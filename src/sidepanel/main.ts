@@ -1,15 +1,19 @@
 import type {
   ClearReviewSessionResult,
+  DeleteReviewCommentResult,
+  LoadReviewPanelInput,
   RenameReviewSessionResult,
   ReviewPanelState,
   StartReviewSessionResult,
   StopReviewSessionResult,
+  UpdateReviewCommentResult,
 } from '@core';
 import { createAppContainer } from '@app';
 import {
   renderReviewPanel,
   renderReviewPanelError,
   type ReviewPanelViewOptions,
+  type SaveCommentInput,
 } from './review-panel-view';
 import './styles.css';
 
@@ -24,12 +28,16 @@ const container = createAppContainer();
 let panel: ReviewPanelState | null = null;
 let selectedSessionId: string | null = null;
 let pendingClearSessionId: string | null = null;
+let editingCommentId: string | null = null;
+let pendingDeleteCommentId: string | null = null;
 let notice: string | null = null;
 
 type StartFailure = Extract<StartReviewSessionResult, { ok: false }>;
 type StopFailure = Extract<StopReviewSessionResult, { ok: false }>;
 type RenameFailure = Extract<RenameReviewSessionResult, { ok: false }>;
 type ClearFailure = Extract<ClearReviewSessionResult, { ok: false }>;
+type UpdateCommentFailure = Extract<UpdateReviewCommentResult, { ok: false }>;
+type DeleteCommentFailure = Extract<DeleteReviewCommentResult, { ok: false }>;
 
 function describeStartFailure(failure: StartFailure): string {
   switch (failure.reason) {
@@ -69,17 +77,31 @@ function describeClearFailure(failure: ClearFailure): string {
   }
 }
 
-function resolveSelection(state: ReviewPanelState): void {
-  if (selectedSessionId !== null && state.sessions.some((session) => session.id === selectedSessionId)) {
-    return;
+function describeUpdateCommentFailure(failure: UpdateCommentFailure): string {
+  switch (failure.reason) {
+    case 'session-not-found':
+      return 'That session no longer exists.';
+    case 'comment-not-found':
+      return 'That note no longer exists.';
+    case 'invalid-comment':
+      return 'The note could not be saved: text must not be blank.';
   }
-  selectedSessionId = state.currentSession?.id ?? state.sessions[0]?.id ?? null;
+}
+
+function describeDeleteCommentFailure(failure: DeleteCommentFailure): string {
+  switch (failure.reason) {
+    case 'session-not-found':
+      return 'That session no longer exists.';
+    case 'comment-not-found':
+      return 'That note no longer exists.';
+  }
 }
 
 function viewOptions(): ReviewPanelViewOptions {
   return {
-    selectedSessionId,
     pendingClearSessionId,
+    editingCommentId,
+    pendingDeleteCommentId,
     notice,
     onRefresh: () => refreshPanel(),
     onStartReview: () => startReview(),
@@ -89,6 +111,12 @@ function viewOptions(): ReviewPanelViewOptions {
     onRequestClearSession: (sessionId) => requestClearSession(sessionId),
     onConfirmClearSession: (sessionId) => clearSession(sessionId),
     onCancelClearSession: () => cancelClearSession(),
+    onEditComment: (commentId) => editComment(commentId),
+    onSaveComment: (input) => saveComment(input),
+    onCancelEditComment: () => cancelEditComment(),
+    onRequestDeleteComment: (commentId) => requestDeleteComment(commentId),
+    onConfirmDeleteComment: (commentId) => confirmDeleteComment(commentId),
+    onCancelDeleteComment: () => cancelDeleteComment(),
   };
 }
 
@@ -102,13 +130,17 @@ function render(): void {
 function refreshPanel(): void {
   notice = null;
   pendingClearSessionId = null;
+  pendingDeleteCommentId = null;
+  editingCommentId = null;
   void load();
 }
 
 function selectSession(sessionId: string): void {
   selectedSessionId = sessionId;
   pendingClearSessionId = null;
-  render();
+  pendingDeleteCommentId = null;
+  editingCommentId = null;
+  void load();
 }
 
 function requestClearSession(sessionId: string): void {
@@ -119,6 +151,28 @@ function requestClearSession(sessionId: string): void {
 
 function cancelClearSession(): void {
   pendingClearSessionId = null;
+  render();
+}
+
+function editComment(commentId: string): void {
+  editingCommentId = commentId;
+  pendingDeleteCommentId = null;
+  render();
+}
+
+function cancelEditComment(): void {
+  editingCommentId = null;
+  render();
+}
+
+function requestDeleteComment(commentId: string): void {
+  pendingDeleteCommentId = commentId;
+  editingCommentId = null;
+  render();
+}
+
+function cancelDeleteComment(): void {
+  pendingDeleteCommentId = null;
   render();
 }
 
@@ -139,6 +193,7 @@ function startReview(): void {
     }
     selectedSessionId = result.session.id;
     pendingClearSessionId = null;
+    container.syncPageOverlay(result.session.pageUrl);
     return null;
   });
 }
@@ -146,7 +201,11 @@ function startReview(): void {
 function stopReview(sessionId: string): void {
   void runAction(async () => {
     const result = await container.stopReviewSession(sessionId);
-    return result.ok ? null : describeStopFailure(result);
+    if (!result.ok) {
+      return describeStopFailure(result);
+    }
+    container.syncPageOverlay(result.session.pageUrl);
+    return null;
   });
 }
 
@@ -168,15 +227,61 @@ function clearSession(sessionId: string): void {
   });
 }
 
+function saveComment(input: SaveCommentInput): void {
+  const sessionId = selectedSessionId;
+  if (sessionId === null) {
+    return;
+  }
+  void runAction(async () => {
+    const result = await container.updateReviewComment({
+      sessionId,
+      commentId: input.commentId,
+      text: input.text,
+      category: input.category,
+      priority: input.priority,
+    });
+    if (result.ok) {
+      editingCommentId = null;
+      return null;
+    }
+    return describeUpdateCommentFailure(result);
+  });
+}
+
+function confirmDeleteComment(commentId: string): void {
+  const sessionId = selectedSessionId;
+  if (sessionId === null) {
+    return;
+  }
+  const pageUrl = panel?.selectedSession?.pageUrl;
+  void runAction(async () => {
+    const result = await container.deleteReviewComment({ sessionId, commentId });
+    pendingDeleteCommentId = null;
+    if (!result.ok) {
+      return describeDeleteCommentFailure(result);
+    }
+    if (pageUrl !== undefined) {
+      container.syncPageOverlay(pageUrl);
+    }
+    return null;
+  });
+}
+
 async function load(): Promise<void> {
   try {
-    panel = await container.loadReviewPanel();
-    resolveSelection(panel);
+    const input: LoadReviewPanelInput =
+      selectedSessionId === null ? {} : { selectedSessionId };
+    panel = await container.loadReviewPanel(input);
+    selectedSessionId = panel.selectedSession?.id ?? null;
     render();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     renderReviewPanelError(root, message, viewOptions());
   }
 }
+
+container.subscribeToReviewChanges(() => {
+  void load();
+});
 
 void load();

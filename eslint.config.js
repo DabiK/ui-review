@@ -18,6 +18,17 @@ export default tseslint.config(
     },
   },
   {
+    // Node scripts (build watchers) run outside the browser bundle.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
     // The domain core must not depend on any runtime technology.
     // Dependency direction is enforced here and by tests/architecture/core-boundaries.test.ts.
     files: ['src/core/**/*.ts'],
