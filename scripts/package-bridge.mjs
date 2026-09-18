@@ -127,7 +127,12 @@ function copyInstallerFiles(target, artifactDir) {
     if (!entry.isFile()) {
       fail(`Only files are supported in ${sourceDir} (found ${entry.name}).`);
     }
-    copyFileSync(join(sourceDir, entry.name), join(artifactDir, entry.name));
+    const destination = join(artifactDir, entry.name);
+    copyFileSync(join(sourceDir, entry.name), destination);
+    // Shell installers must be runnable straight from the unpacked artifact.
+    if (entry.name.endsWith('.sh')) {
+      chmodSync(destination, 0o755);
+    }
   }
   const required = [target.installerName, target.uninstallerName, 'README.md'];
   for (const name of required) {
