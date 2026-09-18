@@ -70,11 +70,16 @@ Vocabulary (`src/core/index.ts`):
   `framework`, `source-map`, `visual`). `createDomEvidence()` assembles the direct DOM
   observation captured when a reviewer pins an element; `createFrameworkEvidence()` assembles
   a best-effort component observation (`FrameworkObservation`: framework kind, nearest
-  component name, ancestor chain, confidence) and re-validates/bounds everything a page or an
-  adapter reports. `visual` evidence records the screenshot outcome per part
+  component name, ancestor chain, raw `_sourceReference` and confidence) and re-validates/bounds
+  everything a page or an adapter reports. `createSourceMapEvidence()` assembles the explicit
+  source location (`SourceMapObservation`): `confirmed` for a source file directly observed in
+  development metadata, `inferred` for a position resolved from a compiled location through a
+  source map, `unavailable` with a mandatory reason otherwise — an unavailable result can never
+  keep a file reference. `visual` evidence records the screenshot outcome per part
   (`captured` / `failed`) with a non-blank reason whenever a capture failed — it never
-  silently claims an image exists. A framework observation is always recorded, including the
-  explicit `unavailable` one, so the brief never has to guess whether detection ran.
+  silently claims an image exists. Framework and source-map observations are always recorded,
+  including their explicit `unavailable` ones, so the brief never has to guess whether
+  detection ran.
 - `Attachment` — binary artifact (viewport screenshot, element crop) linked to a comment,
   stored inline or as a local artifact path. Created via `createAttachment()`, which
   validates the image mime type, dimensions, byte length and storage shape.
@@ -156,13 +161,27 @@ Ports:
 - `ActivePagePort` — `read()` returns the focused page (url, title) or `null`.
   Implementations: `ChromeActivePageAdapter` (`chrome.tabs`), `StaticActivePageAdapter`.
 - `ComponentContextPort` — `detect({ tabId, frameId, fingerprint })` returns the best-effort
-  framework component context of the pinned element as a neutral `FrameworkObservation`.
-  Expected failures (no frame, restricted page, missing metadata) are explicit `unavailable`
-  observations, never exceptions. Implementations: `ChromeComponentContextAdapter` (runs the
-  self-contained React/Next detector from `src/adapters/frameworks/react/` in the page main
-  world through `chrome.scripting.executeScript({ world: 'MAIN' })` and validates the value
-  that crosses back; needs the `scripting` permission) and `FakeComponentContextAdapter`
-  (scriptable test double that records requests). The shared contract test runs against both.
+  framework component context of the pinned element as a neutral `FrameworkObservation`,
+  including the raw development `sourceReference` (`fileName`/`line`/`column`, 1-based) when
+  the page exposed one. Expected failures (no frame, restricted page, missing metadata) are
+  explicit `unavailable` observations, never exceptions. Implementations:
+  `ChromeComponentContextAdapter` (runs the self-contained React/Next detector from
+  `src/adapters/frameworks/react/` in the page main world through
+  `chrome.scripting.executeScript({ world: 'MAIN' })` and validates the value that crosses
+  back; needs the `scripting` permission) and `FakeComponentContextAdapter` (scriptable test
+  double that records requests). The shared contract test runs against both.
+- `SourceMapContextPort` — `resolve({ pageUrl, reference })` turns a compiled framework
+  reference into a `SourceMapResolution`: `mapped` (original source file, 1-based line/column
+  and a mandatory reason) or `unavailable` with a non-blank reason. Implementations:
+  `ChromeSourceMapContextAdapter` (fetches the compiled file and its source map from the
+  extension context — a plain GET without credentials or custom headers, only while a review
+  capture is running; uses the already-granted `<all_urls>` host permission; never stores the
+  fetched bytes) and `FakeSourceMapContextAdapter` (scriptable double). The shared contract
+  test runs against both. The core resolution logic is pure and lives in
+  `src/core/source-maps/` (`findSourceMappingUrl`, `decodeInlineSourceMap`,
+  `parseSourceMapDocument`, `resolveSourceMapPosition`, `isDirectSourceReference`): base64 VLQ
+  decoding, greatest-mapping lookup, explicit `null` for malformed input, and a deliberate
+  refusal to keep `sourcesContent`.
 - `ClockPort` — `now()` returns an ISO-8601 UTC timestamp.
   Implementations: `SystemClockAdapter`, `FixedClockAdapter`.
 - `IdGeneratorPort` — `createId()` returns a fresh id.
@@ -202,23 +221,28 @@ Use cases:
   storage descriptor, current page eligibility, the current page's session (active preferred,
   otherwise the latest stopped), the effective selection and the selected session's comments.
   Each comment summary carries its screenshot previews (`dataUrl` when inline), its explicit
-  capture outcome and its best-effort framework context, so the view never reads the
-  aggregate. The UI learns persistence facts from the descriptor, never from adapter
-  internals.
+  capture outcome, its best-effort framework context and its explicit source location, so the
+  view never reads the aggregate. The UI learns persistence facts from the descriptor, never
+  from adapter internals.
 - `addReviewComment({ sessionId, text, pageUrl, viewport, category?, priority?, anchor? })` —
   adds one comment to an **active** session of the same page, with its optional DOM anchor
   assembled into a `confirmed` DOM evidence linked by comment id. Blank text, invalid anchors
   and mismatched pages are refused with typed failures; nothing is written.
 - `captureCommentEvidence({ sessionId, commentId, capture })` — asks `ScreenshotCapturePort`
-  for the viewport screenshot and element crop of the pinned element and
-  `ComponentContextPort` for its component context, then appends the attachments, one
-  `visual` evidence record and one `framework` evidence record, all linked to the comment id.
+  for the viewport screenshot and element crop of the pinned element,
+  `ComponentContextPort` for its component context, and `SourceMapContextPort` for its source
+  location, then appends the attachments, one `visual` evidence record, one `framework`
+  evidence record and one `source-map` evidence record, all linked to the comment id.
   Visual confidence is `confirmed` when both images exist, `inferred` when only one does and
   `unavailable` otherwise; framework confidence comes from the inspection adapter
-  (`confirmed` only for development metadata, `inferred` for production-like metadata).
-  A missing tab context, a throwing adapter or a malformed observation becomes explicit
-  failed/unavailable evidence, so the text/DOM comment always survives. Capture failures are
-  never thrown.
+  (`confirmed` only for development metadata, `inferred` for production-like metadata). The
+  source-map step only runs when the framework adapter exposed a raw source reference: a
+  reference that already names a source file (`.tsx`, `.vue`, `webpack-internal:…`) is
+  `confirmed` without any request, anything else is resolved through its source map and
+  labelled `inferred`, and every other case is an explicit `unavailable` with a reason — an
+  arbitrary DOM node is never given an invented file. A missing tab context, a throwing
+  adapter or a malformed observation becomes explicit failed/unavailable evidence, so the
+  text/DOM comment always survives. Capture failures are never thrown.
 - `updateReviewComment({ sessionId, commentId, text, category, priority })` — edits one stored
   comment and refreshes `updatedAt`; anchor, evidence and attachments survive.
 - `deleteReviewComment({ sessionId, commentId })` — removes exactly one comment.
@@ -267,7 +291,10 @@ domain decision):
   refresh. Screenshots render as numbered plates (`Fig. 1 · Viewport`, `Fig. 2 · Element
   crop`) with independent two-step removal; a failed capture renders its reason instead, and
   the framework badge reads `detected`, `inferred (best effort)` or `unavailable` — never
-  more than the inspection adapter actually observed.
+  more than the inspection adapter actually observed. The source line follows the same rule
+  (`Source map: detected — …`, `Source map: inferred — … (best effort)` or
+  `Source map: unavailable`), and a direct development reference is never confused with a
+  bundle-mapped position.
 - `content-script.js` (built separately as an IIFE from `src/content/index.ts`, declared in
   `manifest.content_scripts` for `http(s)` pages) is the page driving adapter. On load it asks
   the service worker for `loadOverlayState(location.href)`; only an explicitly active session
@@ -293,6 +320,16 @@ domain decision):
   a minified build degrades to an explicit `unavailable`/`inferred` observation and never
   blocks the note. Development builds are recognised by React's `_debugOwner`/`_debugSource`
   markers, so a production name is never presented as confirmed source truth.
+- Source-map resolution follows the same active-review model: the compiled file referenced by
+  `_debugSource` is fetched by the extension only after `addReviewComment` accepted a note in
+  an active session, never on page load or hover. The request is a plain GET from the service
+  worker (no credentials, no custom headers, no localhost listener), uses the host permission
+  already granted for screenshots, and the fetched bytes are discarded after resolution — only
+  the original file reference, line and column are persisted. Missing, unavailable, invalid or
+  unmapped source maps become explicit `unavailable` evidence with a reason; a resolved
+  position is always `inferred`, because a bundle mapping only proves a location and not a
+  component-file relationship. Local project-origin mapping of `sources` entries is documented
+  as a later fallback and is not attempted here; the raw `sources` entry is kept.
 - The `host_permissions: ["<all_urls>"]` entry is required because
   `chrome.tabs.captureVisibleTab` accepts only `<all_urls>` or the short-lived `activeTab`
   grant, and `activeTab` is revoked by a page reload while a review session survives it. The
@@ -378,11 +415,13 @@ domain decision):
 - Core tests import only the `@core` barrel and exercise public behaviour.
 - The same `ReviewSessionRepository` contract test runs against the in-memory and IndexedDB
   adapters, so the test double cannot drift from the durable store. `ClockPort`,
-  `IdGeneratorPort`, `ActivePagePort`, `ScreenshotCapturePort` and `ComponentContextPort`
-  each have a contract test run against both implementations (the Chrome capture adapter is
-  exercised with stubbed extension globals for the three capture scenarios; the Chrome
-  component adapter is exercised with a stubbed `chrome.scripting.executeScript` and asserts
-  the `world: 'MAIN'` call, the frame targeting and the rejection of malformed page results).
+  `IdGeneratorPort`, `ActivePagePort`, `ScreenshotCapturePort`, `ComponentContextPort` and
+  `SourceMapContextPort` each have a contract test run against both implementations (the Chrome
+  capture adapter is exercised with stubbed extension globals for the three capture scenarios;
+  the Chrome component adapter is exercised with a stubbed `chrome.scripting.executeScript` and
+  asserts the `world: 'MAIN'` call, the frame targeting and the rejection of malformed page
+  results; the Chrome source-map adapter is exercised with a stubbed fetch for the resolved,
+  inline, missing, invalid and unmapped cases).
 - `tests/adapters/session-resume.test.ts` writes with one set of adapter instances and reads
   back with fresh ones, proving the reload/resume acceptance criterion through the real
   IndexedDB adapter.
@@ -408,6 +447,18 @@ domain decision):
   throw. `tests/core/framework-evidence.test.ts` guards the evidence factory (vocabulary,
   blank names, bounds) and `tests/ui/review-panel-view.test.ts` proves `inferred` is never
   labelled as detected.
+- `tests/core/source-map-resolver.test.ts` covers the pure resolver against a hand-built VLQ
+  fixture (known compiled position → expected file/line, greatest-mapping lookup, generated-only
+  and malformed segments, unmapped positions, inline base64/URL-encoded maps, unknown fields)
+  and `isDirectSourceReference`; `tests/core/source-map-evidence.test.ts` guards the source-map
+  factory (bounds, mandatory reason on unavailable, no file claim on unavailable) and
+  `tests/core/capture-comment-evidence.test.ts` covers the direct, mapped, missing-map and
+  throwing-port outcomes with the fake port. The real-Chrome QA for #8 loaded the unpacked
+  extension, served a fixture fiber pointing at a bundle with a published map, and verified:
+  no source-map request before the note was saved, a real extension fetch resolving
+  `bundle.js:2:5` to `../src/PricingCard.tsx:10:3` as `inferred`, a direct
+  `webpack-internal:` reference staying `confirmed` without any request, a plain element
+  stating an explicit `unavailable`, and the three lines rendered in the side panel.
 - `tests/core/review-brief.test.ts` builds briefs from real captured sessions, proves the
   deterministic ordering/file names and the explicit unavailable-attachment states, renders
   the Markdown and re-parses the exported JSON with the documented schema (including unknown

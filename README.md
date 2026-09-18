@@ -100,6 +100,18 @@ panel always shows which of the three applies, and a missing frame, restricted p
 minified build degrades to an explicit state instead of breaking the annotation. The agent
 brief carries the same context and confidence labels.
 
+Source context is resolved only for a reference the framework adapter actually observed. A
+React/Next development reference that already names a source file
+(`webpack-internal:///./src/…`, `/src/App.tsx`, `.vue`, `.svelte`, …) is recorded as
+`detected` with no network call. A compiled reference (a `.js` bundle) is fetched with its
+published source map from the service worker — only after an active review accepted the note,
+with no credentials, no custom headers and no local server — and the original file/line is
+recorded as `inferred`, because a bundle mapping proves a location, not a component-file
+relationship. Missing, invalid, unmapped or oversized maps produce an explicit
+`Source map: unavailable` state and never block the note or the export. Fetched bytes are
+discarded; only the file reference and position are stored. Mapping `sources` entries back to
+a local project origin is documented as a later fallback: the raw entry is kept as-is.
+
 The module map, public interfaces and the dependency rule are documented in
 [`docs/architecture.md`](docs/architecture.md). The agent workflow (one implementation agent
 per issue, a distinct review agent, evidence in PRs) is documented in [`AGENTS.md`](AGENTS.md).
