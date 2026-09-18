@@ -236,4 +236,4 @@ Décisions :
   (`scripts/dev.mjs`), portable macOS/Windows.
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
-contrat (issue #12). Issue #3 fermée après ce commit.
+contrat (issue #12). Issue #3 fermée sur le commit f02db24.
