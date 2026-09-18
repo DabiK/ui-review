@@ -353,4 +353,4 @@ image inspectée) ; 2e note sur l'`input[type=password]` ; IndexedDB réel inspe
 overlay démonté et clic page de nouveau reçu. Harnais hors dépôt, supprimé après usage.
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de contrat
-(issue #12). Issue #4 fermée après ce commit.
+(issue #12). Issue #4 fermée sur le commit 233d9b7.
