@@ -60,26 +60,49 @@ export function listenForOverlaySyncPush(listener: () => void): () => void {
   };
 }
 
+/**
+ * Base document URL (`origin + pathname + search`). Match patterns used by
+ * `chrome.tabs.query({ url })` never match a fragment, and a review session can be scoped to
+ * a hash route, so tabs are matched on this base instead of on the raw URL.
+ */
+function documentBaseUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Asks every open tab showing `pageUrl` to re-sync its overlay. Missing tabs are ignored. */
 export function pushOverlaySyncToTabs(pageUrl: string): void {
+  const targetBase = documentBaseUrl(pageUrl);
+  if (targetBase === null) {
+    return;
+  }
+
   void chrome.tabs
-    .query({ url: pageUrl })
+    .query({})
     .then((tabs) =>
       Promise.all(
-        tabs.map(async (tab) => {
-          if (tab.id === undefined) {
-            return;
-          }
-          try {
-            const request: OverlaySyncRequest = {
-              type: REVIEW_MESSAGES.overlaySync,
-              pageUrl,
-            };
-            await chrome.tabs.sendMessage(tab.id, request);
-          } catch {
-            // The tab has no content script (restricted page or not yet injected).
-          }
-        }),
+        tabs
+          .filter((tab): tab is chrome.tabs.Tab & { id: number; url: string } => {
+            if (tab.id === undefined || tab.url === undefined) {
+              return false;
+            }
+            return documentBaseUrl(tab.url) === targetBase;
+          })
+          .map(async (tab) => {
+            try {
+              const request: OverlaySyncRequest = {
+                type: REVIEW_MESSAGES.overlaySync,
+                pageUrl,
+              };
+              await chrome.tabs.sendMessage(tab.id, request);
+            } catch {
+              // The tab has no content script (restricted page or not yet injected).
+            }
+          }),
       ),
     )
     .catch(() => undefined);

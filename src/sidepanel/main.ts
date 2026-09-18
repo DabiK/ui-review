@@ -217,10 +217,15 @@ function renameSession(sessionId: string, name: string): void {
 }
 
 function clearSession(sessionId: string): void {
+  // Capture the page before the async clear: the read model no longer holds the session after.
+  const pageUrl = panel?.sessions.find((session) => session.id === sessionId)?.pageUrl;
   void runAction(async () => {
     const result = await container.clearReviewSession(sessionId);
     if (result.ok) {
       selectedSessionId = null;
+      if (pageUrl !== undefined) {
+        container.syncPageOverlay(pageUrl);
+      }
     }
     pendingClearSessionId = null;
     return result.ok ? null : describeClearFailure(result);
