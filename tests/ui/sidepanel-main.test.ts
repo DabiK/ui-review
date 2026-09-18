@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppContainer } from '@app';
-import type { CommentSummary, SessionSummary } from '@core';
+import type { BridgeSetup, CommentSummary, SessionSummary } from '@core';
 
 const harness = vi.hoisted(() => {
   const session: SessionSummary = {
@@ -65,6 +65,14 @@ const harness = vi.hoisted(() => {
     attachmentId: string;
   }[] = [];
   let cleared = false;
+
+  const readyBridge: BridgeSetup = {
+    kind: 'ready',
+    bridgeVersion: '0.1.0',
+    platform: 'darwin',
+    artifactRoot: '/root',
+  };
+  let bridgeSetup: BridgeSetup = readyBridge;
 
   const container: AppContainer = {
     loadReviewPanel: async () => ({
@@ -134,12 +142,7 @@ const harness = vi.hoisted(() => {
       message: 'The bridge is not part of this UI test.',
       code: null,
     }),
-    loadBridgeSetup: async () => ({
-      kind: 'ready',
-      bridgeVersion: '0.1.0',
-      platform: 'darwin',
-      artifactRoot: '/root',
-    }),
+    loadBridgeSetup: async () => bridgeSetup,
     storeSessionArtifact: async () => ({
       ok: false,
       reason: 'bridge-unavailable',
@@ -180,8 +183,12 @@ const harness = vi.hoisted(() => {
     syncedPages,
     exportedSessions,
     deletedAttachments,
+    setBridgeSetup: (setup: BridgeSetup) => {
+      bridgeSetup = setup;
+    },
     reset: () => {
       cleared = false;
+      bridgeSetup = readyBridge;
       clearedSessions.length = 0;
       syncedPages.length = 0;
       exportedSessions.length = 0;
@@ -261,4 +268,32 @@ describe('side panel review actions', () => {
     });
   });
 
+  it('shows an actionable setup state and recovers when a bridge appears', async () => {
+    harness.setBridgeSetup({
+      kind: 'missing',
+      message: 'The local bridge is not installed for this browser profile.',
+    });
+
+    await import('../../src/sidepanel/main');
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('Local bridge');
+      expect(document.body.textContent).toContain('Not installed.');
+    });
+
+    expect(findButton('Copy agent brief').disabled).toBe(true);
+    expect(findButton('Check again')).not.toBeNull();
+
+    harness.setBridgeSetup({
+      kind: 'ready',
+      bridgeVersion: '0.1.0',
+      platform: 'darwin',
+      artifactRoot: '/root',
+    });
+    findButton('Check again').click();
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('Ready — v0.1.0 · darwin');
+      expect(findButton('Copy agent brief').disabled).toBe(false);
+    });
+  });
 });

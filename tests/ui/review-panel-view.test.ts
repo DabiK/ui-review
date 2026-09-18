@@ -875,6 +875,75 @@ describe('renderReviewPanel', () => {
     expect(root.textContent).toContain('Add at least one note before copying an agent brief.');
   });
 
+  it('shows a quiet ready line when the local bridge is up to date', () => {
+    const root = document.createElement('div');
+    const session = makeSession({ commentCount: 1 });
+
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session] }), {
+      bridgeSetup: {
+        kind: 'ready',
+        bridgeVersion: '0.1.0',
+        platform: 'darwin',
+        artifactRoot: '/root',
+      },
+      onExportHandoff: vi.fn(),
+    });
+
+    expect(root.textContent).toContain('Local bridge');
+    expect(root.textContent).toContain('Ready — v0.1.0 · darwin');
+    expect(findButton(root, 'Copy agent brief').disabled).toBe(false);
+  });
+
+  it('offers an install-and-retry recovery path when the bridge is missing', () => {
+    const root = document.createElement('div');
+    const onCheckBridge = vi.fn();
+    const session = makeSession({ commentCount: 1 });
+
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session] }), {
+      bridgeSetup: {
+        kind: 'missing',
+        message: 'The local bridge is not installed for this browser profile.',
+      },
+      onCheckBridge,
+      onExportHandoff: vi.fn(),
+    });
+
+    expect(root.textContent).toContain('Not installed.');
+    expect(root.textContent).toContain('The local bridge is not installed for this browser profile.');
+    expect(root.textContent).toContain('Install the matching bridge build for this platform');
+    expect(findButton(root, 'Copy agent brief').disabled).toBe(true);
+
+    findButton(root, 'Check again').click();
+    expect(onCheckBridge).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains a version mismatch and keeps the handoff disabled', () => {
+    const root = document.createElement('div');
+    const session = makeSession({ commentCount: 1 });
+
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session] }), {
+      bridgeSetup: {
+        kind: 'incompatible',
+        message: 'The local bridge reports v0.0.9 but this extension expects v0.1.0.',
+        bridgeVersion: '0.0.9',
+        expectedVersion: '0.1.0',
+      },
+    });
+
+    expect(root.textContent).toContain('Not compatible.');
+    expect(root.textContent).toContain('The local bridge reports v0.0.9 but this extension expects v0.1.0.');
+    expect(findButton(root, 'Copy agent brief').disabled).toBe(true);
+  });
+
+  it('does not render a bridge block when the view is not given one', () => {
+    const root = document.createElement('div');
+    const session = makeSession({ commentCount: 1 });
+
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session] }));
+
+    expect(root.querySelector('.bridge')).toBeNull();
+  });
+
   it('replaces previous content instead of stacking it', () => {
     const root = document.createElement('div');
 

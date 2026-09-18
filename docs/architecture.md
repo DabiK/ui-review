@@ -47,11 +47,14 @@ specifier that leaves `src/core`.
 | `src/bridge/adapters/native-messaging/` | stdio framing + server loop (no HTTP, no socket) | `src/core/bridge` |
 | `src/bridge/main.ts` | Bridge composition root / executable entry point | bridge core + adapters |
 | `src/bridge/native-messaging-host/` | Host manifest template used by the dev installer | — |
-| `scripts/dev.mjs` | Runs all three build watchers (extension ESM, content-script IIFE, bridge ESM) | Vite |
+| `scripts/dev.mjs` | Runs all three build watchers (extension ESM, content-script IIFE, bridge CommonJS) | Vite |
 | `scripts/install-bridge-host.mjs` | Development install/remove of the Native Messaging host | Node |
-| `scripts/bridge-smoke.mjs` | Spawns the built bridge and round-trips a real frame exchange | Node |
+| `scripts/package-bridge.mjs` | Builds the standalone macOS arm64 and Windows x64 executables (Node SEA + postject) | release metadata + Node |
+| `scripts/lib/bridge-release.mjs` | Pure release metadata: targets, artifact names, host manifests, registry keys | — |
+| `packaging/<target>/` | Installer, uninstaller and README copied into each release artifact | — |
+| `scripts/bridge-smoke.mjs` | Spawns the built bridge (or a `--binary` artifact) and round-trips a real frame exchange | Node |
 | `vite.content.config.ts` | Second build pass emitting `dist/content-script.js` as an IIFE | Vite |
-| `vite.bridge.config.ts` | Third build pass emitting the Node bridge executable `dist/bridge/main.js` | Vite |
+| `vite.bridge.config.ts` | Third build pass emitting the Node bridge CommonJS bundle `dist/bridge/main.cjs` | Vite |
 | `public/manifest.json` | MV3 manifest, copied to `dist/` at build time | — |
 | `sidepanel.html` | Side-panel document, bundled by Vite | — |
 
@@ -261,6 +264,12 @@ Use cases:
   validate inputs before the wire (safe session ids and names, allowlisted media type,
   non-empty and bounded content, versioned brief matching its files) and turn a throwing port
   into a typed `bridge-unavailable` failure. Callers never build a bridge envelope.
+- `loadBridgeSetup({ bridge, expectedVersion })` — read model of the setup state the panel
+  presents: `ready` (health version equals the extension version the composition root reads
+  through `RuntimeInfoPort`), `missing` (the port reports `bridge-unavailable` or throws) or
+  `incompatible` (a bridge answered with another build, either a different `bridgeVersion` or
+  a rejected/malformed handshake). It never throws for an unavailable bridge, so the panel can
+  offer an install/reinstall action instead of a raw transport error.
 - `exportReviewHandoff({ sessionId })` — refuses a missing session and an empty one, builds the
   versioned brief from the stored session, materializes `review.md` / `review.json` / images
   through `LocalBridgePort`, then copies the exact Markdown returned by the bridge through
@@ -375,11 +384,17 @@ domain decision):
 
 ## Native bridge
 
-- `dist/bridge/main.js` is a Node ESM bundle built from `src/bridge/main.ts`; Chrome launches
-  it as a Native Messaging host (`stdio`), never through a server. No HTTP listener, socket or
-  port is ever created — `tests/architecture/bridge-boundaries.test.ts` rejects
+- `dist/bridge/main.cjs` is a Node CommonJS bundle built from `src/bridge/main.ts`; Chrome
+  launches it as a Native Messaging host (`stdio`), never through a server. CommonJS (not ESM)
+  is deliberate: Node's single-executable embedder only runs a CommonJS main, and issue #10
+  packages this bundle into standalone binaries. No HTTP listener, socket or port is ever
+  created — `tests/architecture/bridge-boundaries.test.ts` rejects
   `node:http`/`node:https`/`node:net`/`createServer`/`.listen(` anywhere in `src/bridge`, and
   `console.log` is banned because stdout is the protocol pipe (diagnostics go to stderr).
+- `--health` is a diagnostic mode handled before the allowlist check: it prints one JSON line
+  (`kind`, `status`, `bridgeVersion`, `protocolVersion`, `platform`) and exits 0, so an
+  installed artifact can be verified without Chrome. Every `--health` line uses the same
+  `BRIDGE_PROTOCOL_VERSION` constant as the wire handshake.
 - Framing is the Native Messaging protocol: a 4-byte little-endian length prefix followed by
   UTF-8 JSON. Chrome's size limits apply: extension→host messages may reach 64 MiB, but
   host→extension messages are capped at 1 MiB. The bridge accepts artifacts up to 16 MiB
@@ -413,10 +428,28 @@ domain decision):
   TCC-protected folder such as `~/Documents`), writes the per-platform launcher and host
   manifest, and computes the unpacked extension id from `dist/` when none is passed.
   `npm run bridge:uninstall` removes the registration, the launcher and the installed bundle,
-  while leaving persisted sessions intact. `npm run bridge:smoke` spawns the built executable
-  and round-trips health, write, read and handoff frames.
-- Windows: the installer writes the manifest and prints the `reg add` command; packaged
-  installers and standalone binaries arrive in issue #10.
+  while leaving persisted sessions intact. `npm run bridge:smoke` spawns the built bundle (or
+  the artifact passed through `-- --binary <path>`) and round-trips health, write, read and
+  handoff frames.
+- Packaged installation (issue #10): `npm run bridge:package` turns `dist/bridge/main.cjs`
+  into standalone executables — a Node SEA blob generated with `--experimental-sea-config`,
+  injected with postject (`NODE_SEA_BLOB`, `NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
+  `NODE_SEA` Mach-O segment) into a Node runtime, then ad-hoc signed on macOS. Targets are
+  `darwin-arm64` (built from the local arm64 Node) and `win-x64` (built from the node.exe of
+  the requested version, downloaded to `release/.cache/` unless `--node-binary` is given).
+  Artifacts land in `release/ui-review-bridge-<target>/` next to the per-target installer,
+  uninstaller and README from `packaging/`. The embedded runtime is why **no Node.js
+  installation is required** on the reviewer machine.
+- Host registration: the macOS installer writes the manifest to
+  `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/<host>.json`; the Windows
+  installer writes it under `%APPDATA%\ui-review\bridge\` and registers
+  `HKCU\Software\Google\Chrome\NativeMessagingHosts\<host>`. Both launchers pin the allowed
+  origin before `exec`/`%*`, and both uninstallers remove the registration and the installed
+  files without touching `sessions/` — no orphaned Native Messaging registration is left.
+- The release metadata (`scripts/lib/bridge-release.mjs`) is pure: `tests/release/
+  bridge-release.test.ts` runs the packaging CLI in `--plan` mode and asserts artifact naming,
+  both host manifests, registry keys, the installer files and that the plan's protocol version
+  equals the core `BRIDGE_PROTOCOL_VERSION`, so a release cannot drift from the wire contract.
 
 ## Testing strategy
 
@@ -519,9 +552,10 @@ under `tests/fixtures` exercise these presentation adapters without entering pro
 | `npm run lint` | ESLint (includes core boundary rules) |
 | `npm test` | Vitest unit + architecture tests |
 | `npm run verify` | lint → typecheck → test → build |
-| `npm run bridge:install` | Build the bridge, install the Native Messaging host (dev) |
+| `npm run bridge:install` | Install the built bridge as a Native Messaging host (dev) |
 | `npm run bridge:uninstall` | Remove the host registration, launcher and installed bundle |
-| `npm run bridge:smoke` | Spawn the built bridge and round-trip health/write/read/handoff frames |
+| `npm run bridge:package` | Build standalone bridge executables into `release/` |
+| `npm run bridge:smoke` | Spawn the built bridge (or `-- --binary <path>`) and round-trip its frames |
 
 ## Loading the unpacked extension
 
@@ -535,7 +569,10 @@ under `tests/fixtures` exercise these presentation adapters without entering pro
    screenshots, and survive a page or panel reload; edit, preview, remove a screenshot or
    delete them from the panel. **Stop review** ends the session, rename it inline, and
    **Clear session** (with confirmation) deletes it.
-5. Install the bridge (`npm run bridge:install`, then reload the extension) and click
-   **Copy agent brief** in the Session section to materialize the brief and copy it; the panel
-   shows the temporary handoff directory, whose `review.md`, `review.json` and screenshots can
-   be handed to a coding agent.
+5. Install the bridge (`npm run bridge:install` for development, or the packaged installer
+   from `release/`, then reload the extension). The Session section shows the bridge state
+   (`Local bridge ready — v… · platform`); when it is missing or incompatible the handoff is
+   disabled, the panel explains what to install and **Check again** re-runs the health check.
+   Click **Copy agent brief** to materialize the brief and copy it; the panel shows the
+   temporary handoff directory, whose `review.md`, `review.json` and screenshots can be handed
+   to a coding agent.

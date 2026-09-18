@@ -313,9 +313,49 @@ function renderClearConfirmation(
 }
 
 /**
+ * Local bridge setup — issue #10. A ready bridge is a quiet line; a missing or mismatched
+ * bridge becomes an actionable setup state (what to install, then "Check again") instead of
+ * a raw transport error.
+ */
+function renderBridgeBlock(
+  setup: BridgeSetup | null,
+  options: ReviewPanelViewOptions,
+): HTMLElement {
+  const block = element('div', 'bridge');
+  block.append(element('p', 'bridge__label', 'Local bridge'));
+
+  if (setup === null) {
+    block.append(element('p', 'bridge__status', 'Checking…'));
+    return block;
+  }
+
+  if (setup.kind === 'ready') {
+    block.append(
+      element('p', 'bridge__status', `Ready — v${setup.bridgeVersion} · ${setup.platform}`),
+    );
+    return block;
+  }
+
+  const attention = setup.kind === 'missing' ? 'Not installed.' : 'Not compatible.';
+  block.append(
+    element('p', 'bridge__status bridge__status--attention', attention),
+    element(
+      'p',
+      'footnote',
+      `${setup.message} Install the matching bridge build for this platform, then check again.`,
+    ),
+  );
+
+  const actions = element('div', 'actions');
+  actions.append(button('Check again', 'action action--ghost', options.onCheckBridge));
+  block.append(actions);
+  return block;
+}
+
+/**
  * One-action agent handoff: materialize the brief and copy it. The temporary-directory
  * behavior is explained inline, and the action is disabled while there is nothing to hand
- * off.
+ * off or while the local bridge is known to be missing or incompatible.
  */
 function renderHandoffBlock(
   session: SessionSummary,
@@ -323,6 +363,10 @@ function renderHandoffBlock(
 ): HTMLElement {
   const block = element('div', 'handoff');
   block.append(element('p', 'handoff__label', `${session.commentCount} ${session.commentCount === 1 ? 'note' : 'notes'} · Agent handoff`));
+
+  if (options.bridgeSetup !== undefined) {
+    block.append(renderBridgeBlock(options.bridgeSetup, options));
+  }
 
   const actions = element('div', 'actions');
   const copy = button('Copy agent brief', 'action', () => options.onExportHandoff?.(session.id));
@@ -333,6 +377,20 @@ function renderHandoffBlock(
     block.append(
       actions,
       element('p', 'footnote', 'Add at least one note before copying an agent brief.'),
+    );
+    return block;
+  }
+
+  if (options.bridgeSetup !== undefined && options.bridgeSetup !== null &&
+    options.bridgeSetup.kind !== 'ready') {
+    copy.disabled = true;
+    block.append(
+      actions,
+      element(
+        'p',
+        'footnote',
+        'The agent brief needs the local bridge. Install it, then choose Check again.',
+      ),
     );
     return block;
   }

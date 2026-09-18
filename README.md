@@ -40,7 +40,8 @@ npm run verify   # lint → typecheck → unit tests → build
 | `npm test` | Unit and architecture tests |
 | `npm run bridge:install` | Install the local Native Messaging host for development |
 | `npm run bridge:uninstall` | Remove the host registration and installed bridge bundle |
-| `npm run bridge:smoke` | Spawn the built bridge and round-trip health, artifact and handoff frames |
+| `npm run bridge:package` | Build standalone bridge binaries into `release/` (macOS arm64, Windows x64) |
+| `npm run bridge:smoke` | Spawn the built bridge (or `-- --binary <path>`) and round-trip its frames |
 
 Load the unpacked extension: run `npm run build`, open `chrome://extensions`, enable
 Developer mode, click **Load unpacked** and select `dist/`. Clicking the toolbar icon opens
@@ -69,6 +70,11 @@ clipboard. The generated brief instructs the coding agent to change only the lis
 IDs and to report one result per ID. Export failures (bridge absent, clipboard refused) are
 shown explicitly and never modify or delete the stored review. The directory is temporary:
 delete it once the agent is done.
+
+The Session section always shows the local bridge state. A ready bridge renders as a quiet
+`Local bridge ready — v0.1.0 · platform` line; when it is missing or is not the build this
+extension ships with, the handoff is disabled and the panel explains what to install, with a
+**Check again** action that re-runs the health check without reloading the panel.
 
 Every saved note also carries local evidence: a curated DOM anchor (fingerprint, ancestry,
 visible text, role/name, allowlisted attributes, bounding box, viewport, computed styles) and
@@ -135,10 +141,68 @@ npm run bridge:smoke          # optional: exercises the built bridge over real f
 npm run bridge:uninstall      # removes the registration; persisted sessions stay
 ```
 
-The installer copies the bridge into `<app-data>/ui-review/bridge/` and writes the host
+The dev installer copies the bridge into `<app-data>/ui-review/bridge/` and writes the host
 manifest for Chrome. Pass `npm run bridge:install -- --extension-id <id>` when the extension
-id is already known. On Windows the installer prints the `reg add` command instead of
-editing the registry; packaged installers and standalone binaries arrive in issue #10.
+id is already known. On Windows the dev installer prints the `reg add` command instead of
+editing the registry.
+
+### Install the packaged bridge
+
+For a reviewer machine without Node.js, `npm run bridge:package` produces standalone
+executables (Node single-executable applications — the runtime is embedded, nothing else is
+needed):
+
+```sh
+npm run build
+npm run bridge:package                       # both targets into release/
+npm run bridge:package -- --target darwin-arm64
+npm run bridge:package -- --target win-x64   # downloads node.exe for the current Node version
+```
+
+Each `release/ui-review-bridge-<target>/` folder is the artifact: the executable, the
+installer and uninstaller, and a README with the same steps. The extension id shown by
+`chrome://extensions` (Developer mode) is always required, because an unpacked extension id
+depends on the machine.
+
+macOS Apple Silicon:
+
+```sh
+release/ui-review-bridge-darwin-arm64/install.sh --extension-id <extension-id>
+# reload the extension; the panel's Local bridge line turns "Ready"
+release/ui-review-bridge-darwin-arm64/uninstall.sh
+```
+
+Windows x64:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File release\ui-review-bridge-win-x64\install.ps1 -ExtensionId <extension-id>
+# reload the extension; the panel's Local bridge line turns "Ready"
+powershell -ExecutionPolicy Bypass -File release\ui-review-bridge-win-x64\uninstall.ps1
+```
+
+Both installers copy the executable under the user application-data directory, write the
+launcher that pins the allowed origin, register the Native Messaging host (manifest on
+macOS, `HKCU\Software\Google\Chrome\NativeMessagingHosts` on Windows) and finish with a
+health check:
+
+```sh
+release/ui-review-bridge-darwin-arm64/ui-review-bridge --health
+# {"kind":"bridge.health","status":"ok","bridgeVersion":"0.1.0","protocolVersion":1,"platform":"darwin"}
+```
+
+`npm run bridge:smoke -- --binary <path>` runs the full health/write/read/handoff smoke test
+against a packaged binary. Release checks (`tests/release/bridge-release.test.ts`) validate
+the artifact naming, both host manifests and that the packaged plan still speaks
+`BRIDGE_PROTOCOL_VERSION`.
+
+Platform restrictions: only Chrome stable is registered (other channels need their own
+`NativeMessagingHosts` directory / registry key, listed in each artifact README); the macOS
+binary is Apple Silicon only and ad-hoc signed (the installer clears the quarantine
+attribute); the Windows executable is unsigned and may trigger SmartScreen; each executable
+is about 110 MiB because it embeds the runtime. Recovery: when the panel shows **Not
+installed**, run the installer, reload the extension and choose **Check again**; when it
+shows **Not compatible**, run the uninstaller and install the matching build. Uninstallers
+never leave an orphaned registration and never delete `sessions/`.
 
 Security model: the host manifest only allows the registered extension, the launcher sets an
 origin allowlist and the bridge fails closed without it, Chrome's authoritative caller origin
@@ -150,4 +214,15 @@ artifacts are meant to be handed to the agent by local path, not read back. The 
 materializer applies the same rules to its temporary directory: validated session and file
 names, symlink containment, and a full directory replacement on every export.
 
-Local-first Chrome UI review annotations with agent-ready handoff
+## Review interface
+
+Start a review, then click an element on the page to write a note. The panel puts notes
+first; expand **Evidence & context** to inspect screenshots and technical context.
+**Session settings** contains rename and clear actions; **Stored sessions** opens history.
+**Copy agent brief** stays at the bottom of the panel and includes local evidence for the
+coding agent. Draft fields and keyboard focus survive background updates of the same review.
+
+The current visual direction and before/after evidence are in
+[`docs/design/DESIGN.md`](docs/design/DESIGN.md). Development-only layout fixtures can be
+opened at `/tests/fixtures/design-preview.html` and `/tests/fixtures/overlay-preview.html`
+with a local Vite server (`npx vite --host 127.0.0.1`). They are not included in the build.

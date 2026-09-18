@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -178,6 +178,21 @@ afterAll(async () => {
 });
 
 describe('bridge executable over the real Native Messaging framing', () => {
+  it('answers --health without an allowlist and reports the protocol version', () => {
+    const result = spawnSync(process.execPath, [bundlePath, '--health'], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: home, UI_REVIEW_BRIDGE_ALLOWED_ORIGINS: '' },
+    });
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      kind: 'bridge.health',
+      status: 'ok',
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      platform: process.platform,
+    });
+  });
+
   it('round-trips a health check, a write and a read', async () => {
     const bridge = startBridge(
       {

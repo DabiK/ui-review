@@ -114,6 +114,12 @@ button:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus
 .handoff__label { margin: 0; color: var(--meta); font-size: 11px; }
 .handoff .actions { margin-top: 8px; }
 .handoff .action { width: 100%; min-height: 42px; font-size: 13px; }
+.bridge { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 5px; }
+.bridge__label, .bridge__status { font-size: 10px; color: var(--meta); margin: 0; }
+.bridge__status--attention { color: var(--index); font-weight: 600; }
+.bridge .footnote { flex-basis: 100%; margin-top: 0; }
+.bridge .actions { margin-top: 4px; }
+.bridge .action { min-height: 32px; font-size: 11px; }
 .confirm { margin-top: 12px; border-left: 2px solid var(--index); padding: 10px; background: #f5ecec; }
 .confirm__question { font-size: 12px; margin: 0; }
 .notice { border-left: 2px solid var(--action); background: #edf1e9; padding: 12px; font-size: 12px; margin: 16px 0 0; overflow-wrap: anywhere; }

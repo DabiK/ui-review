@@ -1,4 +1,5 @@
 import type {
+  BridgeSetup,
   ClearReviewSessionResult,
   DeleteReviewCommentAttachmentResult,
   DeleteReviewCommentResult,
@@ -36,6 +37,7 @@ let pendingDeleteCommentId: string | null = null;
 let pendingDeleteAttachmentId: string | null = null;
 let notice: string | null = null;
 let pausePending = false;
+let bridgeSetup: BridgeSetup | null = null;
 
 type StartFailure = Extract<StartReviewSessionResult, { ok: false }>;
 type StopFailure = Extract<StopReviewSessionResult, { ok: false }>;
@@ -136,6 +138,8 @@ function viewOptions(): ReviewPanelViewOptions {
     notice,
     pausePending,
     onSetReviewPaused: (sessionId, paused) => setPaused(sessionId, paused),
+    bridgeSetup,
+    onCheckBridge: () => checkBridgeSetup(),
     onRefresh: () => refreshPanel(),
     onStartReview: () => startReview(),
     onStopReview: (sessionId) => stopReview(sessionId),
@@ -172,6 +176,22 @@ function refreshPanel(): void {
   pendingDeleteAttachmentId = null;
   editingCommentId = null;
   void load();
+}
+
+/** Shows the checking state, then asks the composition root for the current bridge setup. */
+function checkBridgeSetup(): void {
+  bridgeSetup = null;
+  render();
+  void refreshBridgeSetup();
+}
+
+async function refreshBridgeSetup(): Promise<void> {
+  try {
+    bridgeSetup = await container.loadBridgeSetup();
+    render();
+  } catch {
+    // The main session load already surfaces runtime errors; keep the last known setup.
+  }
 }
 
 function selectSession(sessionId: string): void {
@@ -385,6 +405,7 @@ async function load(): Promise<void> {
     panel = await container.loadReviewPanel(input);
     selectedSessionId = panel.selectedSession?.id ?? null;
     render();
+    void refreshBridgeSetup();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     renderReviewPanelError(root, message, viewOptions());
