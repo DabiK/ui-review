@@ -18,9 +18,10 @@ const SENSITIVE_NAME_PATTERN =
 
 const SECRET_QUERY_KEYS = SENSITIVE_NAME_PATTERN;
 
-const URL_PROTOCOLS = new Set(['http:', 'https:']);
-
-/** Explicit `scheme:` prefix, used to leave non-http(s) URLs (`mailto:`, `data:`) alone. */
+/**
+ * Explicit `scheme:` prefix, used to redact the part after the scheme when the platform URL
+ * parser rejects an otherwise URL-like value (for example a malformed authority).
+ */
 const SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
 
 interface Redaction {
@@ -36,38 +37,59 @@ export function isSensitiveAttributeName(name: string): boolean {
 /**
  * Removes credentials and secret-like parameters from a URL-like attribute value.
  *
- * - absolute http(s) URLs are parsed, so embedded credentials, secret query parameters and
- *   secret fragment parameters (`#access_token=…`, including hash routes such as
- *   `#/route?token=…`) are redacted;
- * - relative references (`/callback?token=…`, `callback?token=…`, `?token=…`,
- *   `#access_token=…`) and protocol-relative references (`//host/callback?token=…`) are
- *   redacted textually — the core has no page base URL, so this fallback is what keeps an
- *   `href`/`src` value from ever leaking a secret;
- * - anything that is not URL-like, and non-http(s) schemes such as `mailto:` or `data:`,
- *   is returned unchanged.
+ * - every value the platform URL parser accepts is redacted, whatever its scheme: embedded
+ *   credentials, secret query keys and secret fragment keys (`#access_token=…`, including
+ *   hash routes such as `#/route?token=…`) are masked for `http(s)`, `ftp`, `ws(s)` and
+ *   custom deep links (`myapp:`, `slack:`, `vscode:`, …) alike. `mailto:`, `data:` and
+ *   `javascript:` values are parsed too: a secret-bearing parameter is redacted while
+ *   secret-free values stay byte-identical, and such values are never executed, so the
+ *   lossy rewrite of a secret-bearing one is an accepted privacy trade-off;
+ * - values the parser rejects are redacted textually, from the part after their scheme if
+ *   they have one: relative references (`/callback?token=…`, `?token=…`, `#access_token=…`)
+ *   and protocol-relative references (`//host/callback?token=…`) lose credentials and
+ *   secret-like parameters. The core has no page base URL, so this fallback keeps an
+ *   `href`/`src` value from leaking a secret just because it is not an absolute URL;
+ * - non-URL values (`Save`) are returned unchanged.
+ *
+ * Known limitation: Android `intent://…#Intent;…;S.token=…;end` references separate their
+ * parameters with `;`, which `URLSearchParams` does not split on, so a secret nested in an
+ * intent payload is not masked.
  */
 export function redactUrlSecrets(value: string): string {
-  const absolute = parseAbsoluteHttpUrl(value);
-  if (absolute !== null) {
-    return redactAbsoluteUrl(absolute, value);
+  const parsed = parseUrl(value);
+  if (parsed !== null) {
+    return redactParsedUrl(parsed, value);
   }
-  if (SCHEME_PREFIX_PATTERN.test(value)) {
-    return value;
+  const scheme = splitSchemePrefix(value);
+  if (scheme === null) {
+    return redactRelativeUrl(value);
   }
-  return redactRelativeUrl(value);
+  const redacted = redactRelativeUrl(scheme.rest);
+  return redacted === scheme.rest ? value : `${scheme.prefix}${redacted}`;
 }
 
-function parseAbsoluteHttpUrl(value: string): URL | null {
-  let parsed: URL;
+function parseUrl(value: string): URL | null {
   try {
-    parsed = new URL(value);
+    return new URL(value);
   } catch {
     return null;
   }
-  return URL_PROTOCOLS.has(parsed.protocol) ? parsed : null;
 }
 
-function redactAbsoluteUrl(parsed: URL, original: string): string {
+interface SchemeParts {
+  readonly prefix: string;
+  readonly rest: string;
+}
+
+function splitSchemePrefix(value: string): SchemeParts | null {
+  const match = SCHEME_PREFIX_PATTERN.exec(value);
+  if (match === null) {
+    return null;
+  }
+  return { prefix: match[0], rest: value.slice(match[0].length) };
+}
+
+function redactParsedUrl(parsed: URL, original: string): string {
   let changed = false;
 
   if (parsed.username !== '' || parsed.password !== '') {
@@ -188,7 +210,7 @@ function stripEmbeddedCredentials(path: string): Redaction {
 
 /**
  * Copies an attribute record, replacing secret-like names and any secret inside URL-like
- * values (`href`, `src`, …) — absolute, relative and protocol-relative alike.
+ * values (`href`, `src`, …) — whatever the scheme, absolute, relative or protocol-relative.
  */
 export function redactAttributes(
   attributes: Readonly<Record<string, string>>,

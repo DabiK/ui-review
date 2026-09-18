@@ -64,10 +64,18 @@ Vocabulary (`src/core/index.ts`):
   `createEvidence()`: `value` and secret-like attribute names (`password`, `token`,
   `secret`, authorization/API keys, session ids…) become `[redacted]`, and URL attributes
   (`href`, `src`, …) lose credentials and secret-like parameters before persistence.
-  URL redaction covers absolute http(s) URLs, relative and protocol-relative references,
-  query strings and fragments — including hash routes such as `#/route?access_token=…` —
-  so a value can never leak a secret just because it is not an absolute URL. Adapters
-  additionally never read form values; the core gate makes the rule impossible to bypass.
+  URL redaction parses every scheme the platform URL parser accepts — `http(s)`, `ftp`,
+  `ws(s)`, custom deep links (`myapp:`, `slack:`, `vscode:`) — and masks credentials, query
+  keys and fragment keys identically everywhere, including hash routes such as
+  `#/route?access_token=…`. `mailto:`, `data:` and `javascript:` values are parsed too: a
+  secret-bearing parameter is redacted while secret-free values stay byte-identical, and
+  evidence is never executed, so the lossy rewrite of a secret-bearing value is an accepted
+  trade-off. Values the parser rejects are redacted textually from behind their scheme when
+  they have one, so relative and protocol-relative `href`/`src` values cannot leak a secret
+  either. Known limitation: Android `intent://…#Intent;…;S.token=…;end` references separate
+  parameters with `;`, which `URLSearchParams` does not split, so a secret nested in an
+  intent payload is not masked. Adapters additionally never read form values; the core gate
+  makes the rule impossible to bypass.
 - Session lifecycle helpers (`buildSessionName`, `isReviewablePageUrl`, `stopSession`,
   `renameSession`, `sortSessionsByRecency`, `findCurrentSessionForPage`) — pure functions the
   use cases rely on; callers never assemble a transition themselves.
@@ -210,8 +218,9 @@ domain decision):
   `tests/content/bootstrap.test.ts` proves the content script injects nothing without an
   active session.
 - `tests/core/redaction.test.ts` serializes DOM evidence containing passwords, tokens and
-  credential URLs — absolute, relative and protocol-relative, including fragments — and
-  asserts none of them survive; `tests/core/capture-comment-evidence.test.ts`
+  credential URLs — http(s), `wss:`, `ftp:`, custom deep links, relative and
+  protocol-relative, including fragments — and asserts none of them survive;
+  `tests/core/capture-comment-evidence.test.ts`
   covers the confirmed/inferred/unavailable capture outcomes, the screenshot-to-comment
   linkage, independent attachment deletion and the resilience paths.
 - UI tests run under happy-dom and assert accessible structure, not implementation details.

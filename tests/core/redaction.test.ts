@@ -75,13 +75,52 @@ describe('redactUrlSecrets', () => {
     expect(redacted).toBe('https://example.com/private');
   });
 
-  it('leaves non-URL values, non-http schemes and secret-free references unchanged', () => {
+  it('leaves non-URL and secret-free values unchanged', () => {
     expect(redactUrlSecrets('Save')).toBe('Save');
     expect(redactUrlSecrets('mailto:review@example.com?subject=Hello')).toBe(
       'mailto:review@example.com?subject=Hello',
     );
+    expect(redactUrlSecrets('data:text/plain,Hello')).toBe('data:text/plain,Hello');
+    expect(redactUrlSecrets('javascript:void(0)')).toBe('javascript:void(0)');
     expect(redactUrlSecrets('/pricing#plans')).toBe('/pricing#plans');
     expect(redactUrlSecrets('../settings?page=2')).toBe('../settings?page=2');
+  });
+
+  it('redacts secrets in non-http schemes', () => {
+    const deepLink = redactUrlSecrets('myapp://callback?access_token=deep123');
+    expect(deepLink).toContain('myapp://callback');
+    expect(deepLink).not.toContain('deep123');
+
+    const slack = redactUrlSecrets('slack://open?token=slack123');
+    expect(slack).toContain('slack://open');
+    expect(slack).not.toContain('slack123');
+
+    const socket = redactUrlSecrets('wss://host/socket?token=wss123');
+    expect(socket).toContain('wss://host/socket');
+    expect(socket).not.toContain('wss123');
+
+    const ftp = redactUrlSecrets('ftp://user:hunter2@host/uploads?token=ftp123');
+    expect(ftp).toContain('ftp://host/uploads');
+    expect(ftp).not.toContain('hunter2');
+    expect(ftp).not.toContain('ftp123');
+  });
+
+  it('redacts credentials of non-http schemes without a query', () => {
+    const redacted = redactUrlSecrets('myapp://user:pass@host/path');
+
+    expect(redacted).toBe('myapp://host/path');
+  });
+
+  it('never lets a secret survive in a parsed executable scheme', () => {
+    // `javascript:` is parsed like any other scheme; the value is never executed as evidence.
+    expect(redactUrlSecrets("javascript:open('?token=js123')")).not.toContain('js123');
+  });
+
+  it('falls back to textual redaction when the scheme value cannot be parsed', () => {
+    const redacted = redactUrlSecrets('http://exa mple.com/reset?token=abc123');
+
+    expect(redacted).not.toContain('abc123');
+    expect(redacted).toContain('http://exa mple.com/reset');
   });
 
   it('redacts secret fragment parameters of absolute URLs', () => {
@@ -159,6 +198,22 @@ describe('redactAttributes', () => {
     }
   });
 
+  it('redacts secrets inside URL attributes of non-http schemes', () => {
+    const redacted = redactAttributes({
+      href: 'myapp://callback?access_token=deep123',
+      src: 'wss://host/socket?token=wss123',
+      action: 'ftp://user:hunter2@host/uploads?token=ftp123',
+      id: 'open',
+    });
+
+    expect(redacted['id']).toBe('open');
+    const serialized = JSON.stringify(redacted);
+    expect(serialized).not.toContain('deep123');
+    expect(serialized).not.toContain('wss123');
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('ftp123');
+  });
+
   it('never mutates the input record', () => {
     const input = { value: 'hunter2' };
     redactAttributes(input);
@@ -202,6 +257,8 @@ describe('DOM evidence redaction', () => {
     ['absolute fragment', 'https://example.com/callback#access_token=abs123', 'abs123'],
     ['relative query', '/reset?token=rel123', 'rel123'],
     ['protocol-relative query', '//cdn.example.com/script.js?api_key=proto123', 'proto123'],
+    ['deep link query', 'myapp://callback?access_token=deep123', 'deep123'],
+    ['web socket query', 'wss://host/socket?token=wss123', 'wss123'],
   ])('never serializes a secret from a %s URL attribute', (_case, url, secret) => {
     const evidence = createDomEvidence({
       id: 'evidence-2',
@@ -213,6 +270,20 @@ describe('DOM evidence redaction', () => {
     const serialized = JSON.stringify(evidence);
     expect(serialized).not.toContain(secret);
     expect(serialized).toContain('data-testid');
+  });
+
+  it('never serializes ftp credentials or tokens from a URL attribute', () => {
+    const evidence = createDomEvidence({
+      id: 'evidence-3',
+      commentId: 'comment-3',
+      capturedAt: '2026-09-18T10:07:00.000Z',
+      anchor: anchor({ href: 'ftp://user:hunter2@host/uploads?token=ftp123' }),
+    });
+
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('ftp123');
+    expect(serialized).toContain('ftp://host/uploads');
   });
 
   it('keeps every non-secret field intact', () => {

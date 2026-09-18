@@ -59,8 +59,12 @@ visible text, role/name, allowlisted attributes, bounding box, viewport, compute
 two screenshots — the viewport and a crop of the pinned element. Form values are never read,
 and secret-like attributes (`password`, `token`, `secret`, authorization values…) are replaced
 before anything is persisted. URL attributes (`href`, `src`, …) are redacted too: credentials
-and secret-like keys are masked in query strings and fragments of absolute, relative and
-protocol-relative references (`?token=…`, `#access_token=…`, `#/route?api_key=…`). The side panel previews both screenshots as numbered plates and
+and secret-like keys are masked in query strings and fragments of every scheme the platform
+URL parser accepts — `https://…`, `wss://…`, `ftp://…`, custom deep links such as
+`myapp://…?access_token=…` — as well as relative and protocol-relative references
+(`?token=…`, `#access_token=…`, `#/route?api_key=…`). Known limitation: Android
+`intent://…#Intent;…;S.token=…;end` payloads separate their parameters with `;`, which is not
+parsed as a URL parameter separator, so a secret nested there is not masked. The side panel previews both screenshots as numbered plates and
 either can be removed independently before handoff. The overlay hides itself while the capture
 runs so the screenshots show the page, not the review chrome; a capture failure leaves the note
 usable with an explicit "Screenshots unavailable" message. `chrome.tabs.captureVisibleTab`

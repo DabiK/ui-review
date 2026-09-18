@@ -375,8 +375,10 @@ Corrigé dans `src/core/model/redaction.ts` :
 - Références protocol-relative (`//host/path?token=…`) : credentials `user:pass@` supprimés
   puis query/fragment redactés textuellement.
 - Schémas non http(s) (`mailto:`, `data:`, `javascript:`) et valeurs non URL : inchangés.
-- `redactAttributes` applique ce gate à toute valeur d'attribut non sensible, donc `href`/`src`
-  ne peuvent plus laisser passer un secret ; `createEvidence()` reste la porte unique.
+- `redactAttributes` applique ce gate à toute valeur d'attribut non sensible : à ce commit,
+  `href`/`src` http(s), relatifs et protocol-relative ne peuvent plus laisser passer un secret
+  (limite connue à ce stade : les autres schémas — deep links, `wss:`, `ftp:` — restaient
+  verbatim, corrigée au round 4) ; `createEvidence()` reste la porte unique.
 
 Tests (`tests/core/redaction.test.ts`, 19 tests) : les trois cas (fragment absolu, relatif,
 protocol-relative) sont couverts via `redactUrlSecrets`, `redactAttributes` et
@@ -391,3 +393,41 @@ protocol-relative, query et fragments, hash routes).
 Décisions : pas de base URL passée au cœur — le fallback textuel couvre les trois cas sans
 introduire de dépendance au navigateur ni changer les signatures publiques ; le cœur reste pur
 et testable sans DOM.
+
+### Review round 4 — redaction pour tous les schémas URL (issue #4)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 229 tests / 27 fichiers, build double).
+
+Manque bloquant relevé par la review indépendante : `redactUrlSecrets` court-circuitait tout
+schéma non http(s) via `SCHEME_PREFIX_PATTERN`, donc `myapp://callback?access_token=…`,
+`slack://open?token=…`, `wss://host/socket?token=…` ou `ftp://user:pass@host/?token=…`
+survivaient verbatim dans l'évidence DOM (attributs `href`/`src`/`action`).
+
+Corrigé dans `src/core/model/redaction.ts` :
+
+- `redactUrlSecrets` parse désormais toute valeur acceptée par `new URL`, quel que soit le
+  schéma (`http(s)`, `ftp`, `ws(s)`, deep links `myapp:`/`slack:`/`vscode:`…) : credentials,
+  query et fragment sont redactés identiquement (`redactParsedUrl`, ex-`redactAbsoluteUrl`).
+- `mailto:`, `data:` et `javascript:` sont parsés aussi. Décision explicite : une valeur sans
+  paramètre secret reste strictement identique (retour de l'original si rien n'a changé), une
+  valeur porteuse d'un paramètre secret est réécrite — ces URLs ne sont jamais exécutées
+  depuis l'évidence, le trade-off (réécriture potentiellement lossy d'un `javascript:` porteur
+  de secret) est documenté et assumé pour ne laisser aucune échappatoire par schéma.
+- Si le parse échoue mais qu'un préfixe `scheme:` est présent, le fallback textuel
+  (`redactRelativeUrl`) s'applique sur la partie après le `:` ; sinon comportement inchangé
+  (relatif et protocol-relative).
+- Limite documentée : `intent://…#Intent;…;S.token=…;end` sépare ses paramètres par `;`, que
+  `URLSearchParams` ne découpe pas — un secret imbriqué dans un intent Android n'est pas
+  masqué (README + `docs/architecture.md`).
+
+Tests (`tests/core/redaction.test.ts`, 27 tests) : deep link `myapp://…?access_token=…`,
+`slack://open?token=…`, `wss://…?token=…`, `ftp://user:pass@…?token=…` aux trois niveaux
+(`redactUrlSecrets`, `redactAttributes`, `createDomEvidence` + `JSON.stringify`, avec un cas
+dédié pour les credentials ftp et une assertion sur l'URL reconstruite) ; credentials d'un deep
+link sans query ; non-fuite sur un `javascript:` porteur de `?token=` ; fallback textuel sur
+une URL http malformée qui échoue au parse ; le test « unchanged » n'affirme plus qu'une valeur
+porteuse de secret reste intacte (`mailto:`/`data:`/`javascript:` sans paramètre secret
+uniquement).
+
+Docs : `README.md` et `docs/architecture.md` décrivent le périmètre réel (tous schémas
+parsables, fallback textuel, limite `intent://`) ; l'affirmation fausse du round 3 est corrigée.
