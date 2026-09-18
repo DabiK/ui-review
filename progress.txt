@@ -238,3 +238,45 @@ Décisions :
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
 contrat (issue #12). Issue #3 fermée sur le commit f02db24.
+
+### Review round 2 — correctifs issue #3 (clear + URL avec fragment)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 161 tests / 24 fichiers, build double).
+
+Deux manques bloquants relevés par la review indépendante, corrigés seuls (aucune nouvelle
+tâche) :
+
+1. **Clear d'une session active ne synchronisait pas l'overlay page.** `clearSession()`
+   capture désormais la `pageUrl` de la session dans le read model **avant** l'appel
+   asynchrone, puis appelle `container.syncPageOverlay(pageUrl)` après un clear réussi (même
+   schéma que la suppression de commentaire). Sans cela la page restait avec l'overlay monté,
+   les clics interceptés et les pins affichés alors que la session n'existait plus.
+2. **`pushOverlaySyncToTabs` ne trouvait jamais un onglet sur une URL avec fragment.**
+   `chrome.tabs.query({ url: pageUrl })` utilise un pattern de match qui ne matche pas les
+   fragments. Les onglets sont maintenant listés puis filtrés par URL de document de base
+   (`origin + pathname + search`), en comparant directement `tab.url` (permission `tabs`),
+   sans dépendre des sémantiques de match pattern.
+
+Tests de régression ajoutés :
+
+- `tests/adapters/review-messaging.test.ts` (5 tests) : fragment trouvé, autres routes du même
+  document, exclusion des autres documents, onglets sans id/url et envoi rejeté, URL invalide.
+- `tests/ui/sidepanel-main.test.ts` : monte le vrai `main.ts` du side panel avec un container
+  fake, actionne les vrais boutons du panneau (Clear session → Delete session permanently) et
+  vérifie `syncPageOverlay('https://app.example.com/#/route')`.
+
+Vérification navigateur réelle demandée par la review :
+
+- Chrome 153 (macOS), extension **réellement chargée** via CDP `Extensions.loadUnpacked` avec
+  `--enable-unsafe-extension-debugging` (`--load-extension` n'est plus supporté par Chrome
+  stable), fixture locale `http://127.0.0.1:8126/fixture.html#/route`.
+- Cause racine confirmée dans le vrai runtime : `chrome.tabs.query` avec l'URL complète
+  `…#/route` → 0 onglet ; sans fragment → 1 onglet.
+- Scénario complet : Start → overlay monté sur `#/route` ; Stop depuis le panneau → overlay
+  démonté ; Start puis Clear session (avec confirmation) → overlay démonté ; clic natif sur un
+  bouton de la page → reçu (plus d'interception). Aucune exception panneau ni page.
+- Harnais E2E hors dépôt (serveur statique + client CDP Node), supprimé après usage.
+
+Problèmes : aucun. Limite documentée : `--load-extension` étant ignoré par Chrome stable 153,
+le harnais passe par la commande CDP `Extensions.loadUnpacked` (même mécanisme que
+Playwright/Puppeteer récents).
