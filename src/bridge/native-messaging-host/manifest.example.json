@@ -1,0 +1,7 @@
+{
+  "name": "com.dabik.ui_review_bridge",
+  "description": "UI Review local bridge: durable session artifact storage over Native Messaging.",
+  "path": "/absolute/path/to/run-bridge.sh",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://EXTENSION_ID/"]
+}

@@ -18,12 +18,17 @@ export default tseslint.config(
     },
   },
   {
-    // Node scripts (build watchers) run outside the browser bundle.
+    // Node scripts (build watchers, bridge installer, smoke test) run outside the browser.
     files: ['scripts/**/*.mjs'],
     languageOptions: {
       globals: {
+        Buffer: 'readonly',
+        clearInterval: 'readonly',
+        clearTimeout: 'readonly',
         console: 'readonly',
         process: 'readonly',
+        setInterval: 'readonly',
+        setTimeout: 'readonly',
         URL: 'readonly',
       },
     },

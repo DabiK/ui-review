@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Runs both Vite builds in watch mode: the side panel + service worker (ESM) and the page
- * content script (IIFE, required by the MV3 `content_scripts` format).
+ * Runs all Vite builds in watch mode: the side panel + service worker (ESM), the page
+ * content script (IIFE, required by the MV3 `content_scripts` format) and the native bridge
+ * executable (Node ESM).
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,7 @@ const viteBin = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import
 const commands = [
   [viteBin, 'build', '--watch', '--mode', 'development'],
   [viteBin, 'build', '--watch', '--mode', 'development', '--config', 'vite.content.config.ts'],
+  [viteBin, 'build', '--watch', '--mode', 'development', '--config', 'vite.bridge.config.ts'],
 ];
 
 const children = commands.map((args) =>
