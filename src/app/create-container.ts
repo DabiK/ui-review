@@ -1,14 +1,17 @@
 import {
   addReviewComment,
   captureCommentEvidence,
+  checkLocalBridge,
   clearReviewSession,
   deleteReviewComment,
   deleteReviewCommentAttachment,
   loadOverlayState,
   loadReviewPanel,
+  readSessionArtifact,
   renameReviewSession,
   startReviewSession,
   stopReviewSession,
+  storeSessionArtifact,
   updateReviewComment,
   type AddReviewCommentInput,
   type AddReviewCommentResult,
@@ -20,6 +23,11 @@ import {
   type DeleteReviewCommentInput,
   type DeleteReviewCommentResult,
   type LoadReviewPanelInput,
+  type LocalBridgeArtifactRef,
+  type LocalBridgeArtifactWriteInput,
+  type LocalBridgeHealthResult,
+  type LocalBridgeReadResult,
+  type LocalBridgeWriteResult,
   type OverlayState,
   type RenameReviewSessionResult,
   type ReviewPanelState,
@@ -30,6 +38,7 @@ import {
   type UpdateReviewCommentResult,
 } from '@core';
 import { ChromeActivePageAdapter } from '@adapters/chrome/active-page';
+import { ChromeNativeMessagingBridgeAdapter } from '@adapters/chrome/native-bridge';
 import { ChromeReviewChannel } from '@adapters/chrome/review-channel';
 import { ChromeScreenshotCaptureAdapter } from '@adapters/chrome/screenshot-capture';
 import { IndexedDbReviewSessionRepository } from '@adapters/persistence/indexeddb/indexeddb-review-session-repository';
@@ -58,6 +67,9 @@ export interface AppContainer extends ReviewChangeBroadcaster {
   deleteReviewCommentAttachment(
     input: DeleteReviewCommentAttachmentInput,
   ): Promise<DeleteReviewCommentAttachmentResult>;
+  checkLocalBridge(): Promise<LocalBridgeHealthResult>;
+  storeSessionArtifact(input: LocalBridgeArtifactWriteInput): Promise<LocalBridgeWriteResult>;
+  readSessionArtifact(input: LocalBridgeArtifactRef): Promise<LocalBridgeReadResult>;
   subscribeToReviewChanges(listener: () => void): () => void;
 }
 
@@ -69,6 +81,7 @@ export function createAppContainer(): AppContainer {
   const ids = new CryptoIdGeneratorAdapter();
   const channel = new ChromeReviewChannel();
   const screenshots = new ChromeScreenshotCaptureAdapter();
+  const bridge = new ChromeNativeMessagingBridgeAdapter({ ids });
 
   return {
     loadReviewPanel: (input) => loadReviewPanel({ sessions, pages, runtimeInfo }, input),
@@ -85,6 +98,9 @@ export function createAppContainer(): AppContainer {
     deleteReviewComment: (input) => deleteReviewComment({ sessions }, input),
     deleteReviewCommentAttachment: (input) =>
       deleteReviewCommentAttachment({ sessions }, input),
+    checkLocalBridge: () => checkLocalBridge({ bridge }),
+    storeSessionArtifact: (input) => storeSessionArtifact({ bridge }, input),
+    readSessionArtifact: (input) => readSessionArtifact({ bridge }, input),
     notifyPanelChanged: () => channel.notifyPanelChanged(),
     syncPageOverlay: (pageUrl) => channel.syncPageOverlay(pageUrl),
     subscribeToReviewChanges: (listener) => channel.subscribe(listener),

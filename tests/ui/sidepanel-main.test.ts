@@ -113,6 +113,24 @@ const harness = vi.hoisted(() => {
         attachmentId: input.attachmentId,
       };
     },
+    checkLocalBridge: async () => ({
+      ok: false,
+      reason: 'bridge-unavailable',
+      message: 'The bridge is not part of this UI test.',
+      code: null,
+    }),
+    storeSessionArtifact: async () => ({
+      ok: false,
+      reason: 'bridge-unavailable',
+      message: 'The bridge is not part of this UI test.',
+      code: null,
+    }),
+    readSessionArtifact: async () => ({
+      ok: false,
+      reason: 'bridge-unavailable',
+      message: 'The bridge is not part of this UI test.',
+      code: null,
+    }),
     notifyPanelChanged: () => undefined,
     syncPageOverlay: (pageUrl) => {
       syncedPages.push(pageUrl);
