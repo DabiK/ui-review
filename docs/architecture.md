@@ -25,22 +25,23 @@ specifier that leaves `src/core`.
 | Path | Role | Depends on |
 |---|---|---|
 | `src/core/model/` | Canonical vocabulary and invariants | nothing |
-| `src/core/bridge/` | Versioned bridge protocol + base64 codec, shared with the native bridge | nothing |
+| `src/core/bridge/` | Versioned bridge protocol + base64 codec + path-slug rules, shared with the native bridge | nothing |
+| `src/core/handoff/` | Versioned agent brief schema (`review.json` v1), deterministic builder, Markdown renderer and strict parser, shared with the bridge | `src/core/bridge` codec/slug + model |
 | `src/core/ports/` | Driven interfaces declared by the domain | `src/core/model` |
 | `src/core/usecases/` | Core use cases / read models | `model` + `ports` |
 | `src/core/index.ts` | Public barrel — the only entry point for the core | core internals |
 | `src/adapters/persistence/in-memory/` | Ephemeral repository (tests, previews) | `@core` |
 | `src/adapters/persistence/indexeddb/` | Durable repository (browser profile) | `@core` |
-| `src/adapters/runtime/` | Host facts: Chrome runtime, system clock, crypto ids + deterministic doubles, in-process bridge | `@core` + bridge core |
+| `src/adapters/runtime/` | Host facts: Chrome runtime, system clock, crypto ids, Navigator clipboard + deterministic doubles, in-process bridge | `@core` + bridge core |
 | `src/adapters/local-bridge/` | Shared mapping of bridge responses to typed port results | `@core` |
 | `src/adapters/chrome/` | Chrome integrations (side panel wiring, active tab, review transport, change channel, Native Messaging client) | `@core` + `@app` types |
 | `src/app/` | Composition root: adapters → use cases + application gateways | `@core` + adapters |
 | `src/sidepanel/` | Driving adapter: side-panel view (plain DOM) | `@app` + `@core` types |
 | `src/content/` | Driving adapter: page overlay (shadow DOM), DOM anchor capture | `@core` types + transport |
 | `src/background/` | MV3 service worker entry point | `@adapters/chrome` |
-| `src/bridge/core/` | Native bridge domain: request handler, artifact path builder, artifact store + OS path ports | `src/core/bridge` only |
-| `src/bridge/adapters/fs/` | Durable filesystem artifact store (containment + symlink guards) | bridge core |
-| `src/bridge/adapters/in-memory/` | Portable artifact store used by tests and the in-process adapter | bridge core |
+| `src/bridge/core/` | Native bridge domain: request handler, artifact path builder, artifact store + handoff writer + OS path ports | `src/core/bridge` + `src/core/handoff` |
+| `src/bridge/adapters/fs/` | Durable filesystem artifact store and temporary handoff writer (containment + symlink guards) | bridge core |
+| `src/bridge/adapters/in-memory/` | Portable artifact store and handoff writer used by tests and the in-process adapter | bridge core |
 | `src/bridge/adapters/os/` | macOS / Windows / Linux application-data directories | bridge core |
 | `src/bridge/adapters/native-messaging/` | stdio framing + server loop (no HTTP, no socket) | `src/core/bridge` |
 | `src/bridge/main.ts` | Bridge composition root / executable entry point | bridge core + adapters |
@@ -94,20 +95,52 @@ Vocabulary (`src/core/index.ts`):
 
 Bridge protocol (`src/core/bridge/`, shared by both processes, pure):
 
-- `BRIDGE_PROTOCOL_VERSION`, `BRIDGE_HOST_NAME` and exactly three allowlisted operations:
-  `bridge.health`, `artifact.write`, `artifact.read`. Anything else is rejected before any
-  handler runs.
+- `BRIDGE_PROTOCOL_VERSION`, `BRIDGE_HOST_NAME` and exactly four allowlisted operations:
+  `bridge.health`, `artifact.write`, `artifact.read`, `handoff.materialize`. Anything else is
+  rejected before any handler runs.
 - Request envelope: `{ protocolVersion, requestId, operation, origin, payload }`; response:
   `{ protocolVersion, requestId, ok, result | error }` with typed error codes
-  (`protocol-mismatch`, `origin-not-allowed`, `invalid-artifact-name`, `artifact-too-large`,
-  `invalid-base64`, `path-not-allowed`, `artifact-not-found`, `io-error`, …).
+  (`protocol-mismatch`, `origin-not-allowed`, `unsupported-brief-version`,
+  `invalid-artifact-name`, `artifact-too-large`, `invalid-base64`, `path-not-allowed`,
+  `artifact-not-found`, `io-error`, …).
 - Strict parsers (`parseBridgeEnvelope`, `parseBridgePayload`, `parseBridgeResponse`) validate
   exact keys, protocol version, operation allowlist, origin shape, safe path segments
   (conservative slugs, Windows device names refused) and canonical base64. Artifact content is
   decoded once during validation and bounded by `BRIDGE_MAX_ARTIFACT_BYTES` (16 MiB, below
   Chrome's 64 MiB extension→host limit).
+- `handoff.materialize` carries `{ sessionId, brief, files[] }` where `brief` is a
+  `ReviewBriefDocument` and each file is an allowlisted image with canonical base64 content.
+  The parser validates the versioned brief against the shared schema, requires the brief to
+  belong to the session, bounds the file count and total bytes, and enforces a one-to-one match
+  between the file names the brief references and the files provided. The bridge renders
+  `review.md` from the validated document, so it can point at the real absolute paths it is
+  about to write; the response returns the directory, the file paths and the exact Markdown.
 - `encodeBase64` / `decodeBase64` — dependency-free, canonical-only codec; anything that is
   not canonical base64 is refused instead of silently repaired.
+
+Agent brief (`src/core/handoff/`, pure, shared with the bridge):
+
+- `REVIEW_BRIEF_SCHEMA_VERSION = 1`, `review.md` / `review.json` file names and the image
+  media allowlist (`image/png`, `image/jpeg`, `image/webp`), with `REVIEW_BRIEF_MAX_FILES`
+  (100), per-file (16 MiB) and total (32 MiB) bounds.
+- `ReviewBriefDocument` — the versioned `review.json` schema: generated timestamp, session
+  identity/status/timestamps, and one entry per comment with its 1-based index, id, text,
+  category, priority, timestamps, evidence (DOM, framework, source-map, visual payloads with
+  their confidence; absent payloads are `null`) and attachments (`kind`, mime type, dimensions,
+  byte length, `file` name or an explicit `unavailableReason`). This is the schema documented
+  for agents and validated at both ends.
+- `buildReviewBrief(session, { generatedAt })` — deterministic builder: comments keep their
+  stored order, file names come from the comment index and attachment kind, repeated
+  attachments get a numeric suffix, and an attachment the bridge cannot materialize (external
+  artifact, unsupported format, unreadable data URL) becomes `file: null` with a reason
+  instead of a dangling path.
+- `renderReviewBriefMarkdown(brief, paths)` — deterministic, concise Markdown with the review
+  context, the temporary-directory explanation, the agent instructions (change only the scoped
+  items, report exactly one result per comment id, expected response format) and one section
+  per comment with DOM/framework/source-map context, confidence labels and absolute image
+  paths.
+- `parseReviewBriefDocument` / `validateReviewBriefBundle` — strict versioned validation used
+  by the wire parser and by the export use case before any bridge call.
 
 Ports:
 
@@ -128,14 +161,20 @@ Ports:
   Implementations: `ChromeScreenshotCaptureAdapter` (`chrome.tabs.captureVisibleTab` plus a
   local `OffscreenCanvas` crop), `FakeScreenshotCaptureAdapter` (scriptable test double).
   The shared contract test runs against both, including the offscreen and unavailable paths.
-- `LocalBridgePort` — `checkHealth()`, `writeArtifact(input)`, `readArtifact(ref)`. Expected
-  failures are typed (`bridge-unavailable`, `bridge-rejected`, `invalid-response`,
-  `artifact-not-found`) with the bridge error code when one was returned.
-  Implementations: `ChromeNativeMessagingBridgeAdapter` (`chrome.runtime.sendNativeMessage`
-  over the versioned protocol; needs the `nativeMessaging` permission) and
-  `InMemoryLocalBridgeAdapter` (runs the real bridge handler and in-memory artifact store
-  in-process, so tests and previews exercise the exact protocol logic without spawning a
-  process). The shared contract test runs against both.
+- `LocalBridgePort` — `checkHealth()`, `writeArtifact(input)`, `readArtifact(ref)`,
+  `materializeHandoff(input)`. Expected failures are typed (`bridge-unavailable`,
+  `bridge-rejected`, `invalid-response`, `artifact-not-found`, `invalid-brief`, …) with the
+  bridge error code when one was returned. Implementations:
+  `ChromeNativeMessagingBridgeAdapter` (`chrome.runtime.sendNativeMessage` over the versioned
+  protocol; needs the `nativeMessaging` permission) and `InMemoryLocalBridgeAdapter` (runs the
+  real bridge handler, in-memory artifact store and handoff writer in-process, so tests and
+  previews exercise the exact protocol logic without spawning a process). The shared contract
+  test runs against both.
+- `ClipboardPort` — `writeText(text)` returns `{ ok: true }` or a typed
+  `clipboard-unavailable` failure, so the side panel never calls `navigator.clipboard` itself.
+  Implementations: `NavigatorClipboardAdapter` (needs the `clipboardWrite` permission),
+  `InMemoryClipboardAdapter` (records the last text and can be scripted to fail). The shared
+  contract test runs against both.
 
 Use cases:
 
@@ -174,9 +213,15 @@ Use cases:
   (fingerprint, ancestry, text, role, bounding box, viewport). No session active for the URL
   means `{ active: false, comments: [] }` and no injected overlay.
 - `checkLocalBridge({ bridge })`, `storeSessionArtifact({ bridge }, input)`,
-  `readSessionArtifact({ bridge }, ref)` — validate inputs before the wire (safe session ids
-  and names, allowlisted media type, non-empty and bounded content) and turn a throwing port
+  `readSessionArtifact({ bridge }, ref)`, `materializeReviewHandoff({ bridge }, input)` —
+  validate inputs before the wire (safe session ids and names, allowlisted media type,
+  non-empty and bounded content, versioned brief matching its files) and turn a throwing port
   into a typed `bridge-unavailable` failure. Callers never build a bridge envelope.
+- `exportReviewHandoff({ sessionId })` — refuses a missing session and an empty one, builds the
+  versioned brief from the stored session, materializes `review.md` / `review.json` / images
+  through `LocalBridgePort`, then copies the exact Markdown returned by the bridge through
+  `ClipboardPort`. Every failure is typed; the persisted session is never modified or deleted,
+  and a clipboard failure leaves the materialized artifacts in place.
 
 Every expected lifecycle failure is a typed result (`{ ok: false, reason }`) rather than a
 thrown error; `DomainValidationError` is reserved for invalid state assembled by developers
@@ -230,8 +275,7 @@ domain decision):
 - Sessions are stored in IndexedDB (`ui-review` database, `review-sessions` store), screenshots
   included as inline data URLs; after a reload the side panel restores the current page's
   session and its notes by page URL, and the overlay rebuilds its pins from each comment's DOM
-  fingerprint. No data leaves the machine; the native bridge and artifact paths arrive in
-  later issues.
+  fingerprint. No data leaves the machine.
 - `Start review` is the only entry point of inspection: the panel itself never captures
   anything, and ineligible pages (`chrome://`, `file://`, …) get a disabled action with an
   explanation.
@@ -239,9 +283,19 @@ domain decision):
   URL and title and so the service worker can push overlay syncs to the matching tabs; the
   core and the UI still never call `chrome.*` directly.
 - The `nativeMessaging` permission lets the composition root's
-  `ChromeNativeMessagingBridgeAdapter` round-trip health and artifact requests through the
-  host manifest. The bridge use cases are exposed by the container for the export flow
-  (#6); no UI control calls them yet and no artifact is written until that flow runs.
+  `ChromeNativeMessagingBridgeAdapter` round-trip health, artifact and handoff requests through
+  the host manifest. The `clipboardWrite` permission lets `NavigatorClipboardAdapter` copy the
+  generated brief; both are behind ports, and the panel only sees `exportReviewHandoff`.
+- **Agent handoff:** `Copy agent brief` in the Session section runs the
+  `exportReviewHandoff` use case: the core builds the versioned brief from the stored session,
+  the bridge materializes `review.md`, `review.json` and the referenced screenshots into
+  `<OS temp>/ui-review/handoff/<sessionId>`, and the exact Markdown returned by the bridge is
+  copied to the clipboard. Exporting again replaces the same directory, so copies never
+  accumulate; the persistent session is never modified. The panel disables the action while
+  the session has no notes and shows an explicit notice with the directory path on success, or
+  a typed failure (bridge missing, clipboard refused) otherwise. The Markdown explains the
+  temporary-path behavior and tells the agent to modify only the scoped review items and to
+  report one result per comment id.
 
 ## Native bridge
 
@@ -266,10 +320,17 @@ domain decision):
   `$XDG_DATA_HOME`/`~/.local/share`): `<app-data>/ui-review/sessions/<sessionId>/artifacts/<name>`
   with a metadata sidecar in `metadata/`. `UI_REVIEW_BRIDGE_DATA_ROOT` overrides the durable
   root for development and smoke tests.
+- Temporary handoffs live under the OS temp root (`os.tmpdir()`: `/tmp` on macOS, the Windows
+  temp equivalent) in `<temp>/ui-review/handoff/<sessionId>/`; the filesystem handoff writer
+  replaces the whole session directory on every materialization, so `review.md`,
+  `review.json` and the images always describe the same export and stale files disappear.
+  `UI_REVIEW_BRIDGE_HANDOFF_ROOT` overrides that root for development and smoke tests.
 - Path safety: the pure path builder only emits validated slug segments; the filesystem store
   resolves every path and verifies containment after symlink resolution, refusing symlinked
   session folders or artifact files with `path-not-allowed`. A missing artifact returns
   `artifact-not-found`; corrupted metadata returns `io-error` instead of a guessed media type.
+  The handoff writer applies the same containment and symlink checks, and writes `review.md`
+  last so the brief never references an image that does not exist yet.
 - Development installation: `npm run build`, then
   `npm run bridge:install [-- --extension-id <id>]`. The installer copies the bundle into
   `<app-data>/ui-review/bridge/` (on macOS Chrome cannot execute a launcher under a
@@ -277,7 +338,7 @@ domain decision):
   manifest, and computes the unpacked extension id from `dist/` when none is passed.
   `npm run bridge:uninstall` removes the registration, the launcher and the installed bundle,
   while leaving persisted sessions intact. `npm run bridge:smoke` spawns the built executable
-  and round-trips health, write and read frames.
+  and round-trips health, write, read and handoff frames.
 - Windows: the installer writes the manifest and prints the `reg add` command; packaged
   installers and standalone binaries arrive in issue #10.
 
@@ -306,12 +367,26 @@ domain decision):
   `tests/core/capture-comment-evidence.test.ts`
   covers the confirmed/inferred/unavailable capture outcomes, the screenshot-to-comment
   linkage, independent attachment deletion and the resilience paths.
+- `tests/core/review-brief.test.ts` builds briefs from real captured sessions, proves the
+  deterministic ordering/file names and the explicit unavailable-attachment states, renders
+  the Markdown and re-parses the exported JSON with the documented schema (including unknown
+  versions, unknown fields and dangling file names);
+  `tests/core/export-review-handoff.test.ts` runs the whole export use case over the in-memory
+  repository, the in-process bridge and the in-memory clipboard: idempotent directory reuse,
+  per-comment ordering after a deletion, bridge failure and clipboard failure both leaving the
+  persisted session intact.
+- `tests/bridge/handoff-writer.contract.ts` runs against the in-memory and filesystem handoff
+  writers (plan purity, directory replacement, isolation, traversal refusals), with
+  filesystem-specific symlink-escape cases; `tests/bridge/handle-request.test.ts` covers the
+  handoff operation and `tests/bridge/executable.test.ts` materializes a real handoff over the
+  real Native Messaging framing.
 - UI tests run under happy-dom and assert accessible structure, not implementation details.
 - `tests/bridge/` covers the request handler, the path builder, both artifact stores (one
   shared contract plus symlink-escape cases for the filesystem store), the OS app-data paths
   (the same contract run against the macOS, Windows and Linux adapters) and the stdio framing
   and server. `tests/bridge/executable.test.ts` builds the real executable with Vite, spawns
-  it and speaks the real Native Messaging framing, including the fail-closed startup paths.
+  it and speaks the real Native Messaging framing, including the fail-closed startup paths and
+  a handoff materialization into a controlled temp root.
 - `tests/architecture/bridge-boundaries.test.ts` guards the pure bridge core and the absence
   of network listeners or stdout logging.
 - `tests/architecture/core-boundaries.test.ts` guards the dependency rule.
@@ -331,7 +406,7 @@ domain decision):
 | `npm run verify` | lint → typecheck → test → build |
 | `npm run bridge:install` | Build the bridge, install the Native Messaging host (dev) |
 | `npm run bridge:uninstall` | Remove the host registration, launcher and installed bundle |
-| `npm run bridge:smoke` | Spawn the built bridge and round-trip health/write/read frames |
+| `npm run bridge:smoke` | Spawn the built bridge and round-trip health/write/read/handoff frames |
 
 ## Loading the unpacked extension
 
@@ -345,3 +420,7 @@ domain decision):
    screenshots, and survive a page or panel reload; edit, preview, remove a screenshot or
    delete them from the panel. **Stop review** ends the session, rename it inline, and
    **Clear session** (with confirmation) deletes it.
+5. Install the bridge (`npm run bridge:install`, then reload the extension) and click
+   **Copy agent brief** in the Session section to materialize the brief and copy it; the panel
+   shows the temporary handoff directory, whose `review.md`, `review.json` and screenshots can
+   be handed to a coding agent.

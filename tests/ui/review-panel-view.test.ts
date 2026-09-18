@@ -526,6 +526,38 @@ describe('renderReviewPanel', () => {
     expect(alert?.textContent).toContain('That session no longer exists.');
   });
 
+  it('offers the agent handoff once the session has notes and explains the temporary folder', () => {
+    const root = document.createElement('div');
+    const onExportHandoff = vi.fn();
+    const session = makeSession({ commentCount: 1 });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session] }),
+      { onExportHandoff },
+    );
+
+    const copy = findButton(root, 'Copy agent brief');
+    expect(copy.disabled).toBe(false);
+    expect(root.textContent).toContain('temporary per-session folder');
+    expect(root.textContent).toContain('review.json');
+
+    copy.click();
+    expect(onExportHandoff).toHaveBeenCalledWith('session-1');
+  });
+
+  it('disables the agent handoff while the session has no notes to hand off', () => {
+    const root = document.createElement('div');
+    const session = makeSession({ commentCount: 0 });
+
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session] }), {
+      onExportHandoff: vi.fn(),
+    });
+
+    expect(findButton(root, 'Copy agent brief').disabled).toBe(true);
+    expect(root.textContent).toContain('Add at least one note before copying an agent brief.');
+  });
+
   it('replaces previous content instead of stacking it', () => {
     const root = document.createElement('div');
 

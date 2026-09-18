@@ -391,7 +391,26 @@ body {
   border: 1px solid var(--rule);
   border-left: 3px solid var(--index);
   margin: 16px 0 0;
+  overflow-wrap: anywhere;
   padding: 9px 11px;
+}
+
+/* Agent handoff — issue #6. A labelled action above the clear controls, with the temporary
+   directory behavior stated inline instead of hidden behind a tooltip. */
+
+.handoff {
+  border-top: 1px solid var(--rule);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.handoff__label {
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  margin: 0;
+  text-transform: uppercase;
 }
 
 /* Notes — issue #3. Numbered comment rows separated by fine rules, no cards. */

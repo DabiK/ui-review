@@ -2,6 +2,8 @@ import type {
   ClearReviewSessionResult,
   DeleteReviewCommentAttachmentResult,
   DeleteReviewCommentResult,
+  ExportReviewHandoffFailure,
+  ExportReviewHandoffResult,
   LoadReviewPanelInput,
   RenameReviewSessionResult,
   ReviewPanelState,
@@ -111,6 +113,19 @@ function describeDeleteAttachmentFailure(failure: DeleteAttachmentFailure): stri
   }
 }
 
+function describeExportFailure(failure: ExportReviewHandoffFailure): string {
+  switch (failure.reason) {
+    case 'session-not-found':
+      return 'That session no longer exists.';
+    case 'no-comments':
+      return 'Add at least one note before copying an agent brief.';
+    case 'clipboard-unavailable':
+      return `${failure.message} The artifacts are still in the handoff folder.`;
+    default:
+      return `${failure.message} The review session is unchanged.`;
+  }
+}
+
 function viewOptions(): ReviewPanelViewOptions {
   return {
     pendingClearSessionId,
@@ -136,6 +151,7 @@ function viewOptions(): ReviewPanelViewOptions {
     onConfirmDeleteAttachment: (commentId, attachmentId) =>
       confirmDeleteAttachment(commentId, attachmentId),
     onCancelDeleteAttachment: () => cancelDeleteAttachment(),
+    onExportHandoff: (sessionId) => exportHandoff(sessionId),
   };
 }
 
@@ -227,6 +243,16 @@ function confirmDeleteAttachment(commentId: string, attachmentId: string): void 
     });
     pendingDeleteAttachmentId = null;
     return result.ok ? null : describeDeleteAttachmentFailure(result);
+  });
+}
+
+function exportHandoff(sessionId: string): void {
+  void runAction(async () => {
+    const result: ExportReviewHandoffResult = await container.exportReviewHandoff(sessionId);
+    if (!result.ok) {
+      return describeExportFailure(result);
+    }
+    return `Agent brief copied. Artifacts written to ${result.handoff.directory}`;
   });
 }
 

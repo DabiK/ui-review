@@ -5,7 +5,17 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { build } from 'vite';
-import { BRIDGE_PROTOCOL_VERSION, decodeBase64, encodeBase64, type BridgeResponse } from '@core';
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  buildReviewBrief,
+  createAttachment,
+  createReviewComment,
+  createReviewSession,
+  decodeBase64,
+  encodeBase64,
+  type BridgeResponse,
+  type ReviewBriefBundle,
+} from '@core';
 import {
   decodeNativeFrames,
   encodeNativeMessage,
@@ -86,13 +96,59 @@ function request(operation: string, payload: unknown, overrides: Record<string, 
   };
 }
 
+function sampleBundle(): ReviewBriefBundle {
+  const comment = createReviewComment({
+    id: 'comment-1',
+    sessionId: 'handoff-session',
+    text: 'The button is misaligned.',
+    pageUrl: 'https://example.com/pricing',
+    viewport: { width: 1440, height: 900 },
+    createdAt: '2026-09-18T10:05:00.000Z',
+    attachments: [
+      createAttachment({
+        id: 'attachment-1',
+        commentId: 'comment-1',
+        kind: 'element-crop',
+        mimeType: 'image/png',
+        width: 1,
+        height: 1,
+        byteLength: 3,
+        createdAt: '2026-09-18T10:05:00.000Z',
+        storage: { type: 'inline-data-url', dataUrl: 'data:image/png;base64,AQID' },
+      }),
+    ],
+  });
+  const session = createReviewSession({
+    id: 'handoff-session',
+    name: 'example.com — 18 Sep 2026, 10:00',
+    pageUrl: 'https://example.com/pricing',
+    startedAt: '2026-09-18T10:00:00.000Z',
+    comments: [comment],
+  });
+  return buildReviewBrief(session, { generatedAt: '2026-09-18T10:06:00.000Z' });
+}
+
+function handoffPayload(bundle: ReviewBriefBundle): unknown {
+  return {
+    sessionId: bundle.brief.session.id,
+    brief: bundle.brief,
+    files: bundle.files.map((file) => ({
+      name: file.name,
+      mediaType: file.mediaType,
+      contentBase64: encodeBase64(file.content),
+    })),
+  };
+}
+
 let buildDir: string;
 let home: string;
+let handoffRoot: string;
 let bundlePath: string;
 
 beforeAll(async () => {
   buildDir = await mkdtemp(join(tmpdir(), 'ui-review-bridge-build-'));
   home = await mkdtemp(join(tmpdir(), 'ui-review-bridge-home-'));
+  handoffRoot = await mkdtemp(join(tmpdir(), 'ui-review-bridge-handoff-'));
   await build({
     configFile: false,
     logLevel: 'silent',
@@ -112,6 +168,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await rm(buildDir, { recursive: true, force: true });
   await rm(home, { recursive: true, force: true });
+  await rm(handoffRoot, { recursive: true, force: true });
 });
 
 describe('bridge executable over the real Native Messaging framing', () => {
@@ -216,6 +273,85 @@ describe('bridge executable over the real Native Messaging framing', () => {
 
       expect(unknown).toMatchObject({ ok: false, error: { code: 'unsupported-operation' } });
       expect(traversal).toMatchObject({ ok: false, error: { code: 'invalid-artifact-name' } });
+    } finally {
+      bridge.stop();
+    }
+  }, 20_000);
+
+  it('materializes an agent handoff into the OS temporary directory and updates it in place', async () => {
+    const bundle = sampleBundle();
+    const bridge = startBridge(
+      {
+        UI_REVIEW_BRIDGE_ALLOWED_ORIGINS: ORIGIN,
+        HOME: home,
+        TMPDIR: handoffRoot,
+        TEMP: handoffRoot,
+        TMP: handoffRoot,
+      },
+      [ORIGIN],
+    );
+    try {
+      bridge.send(request('handoff.materialize', handoffPayload(bundle)));
+      const response = await bridge.next();
+
+      expect(response).toMatchObject({
+        ok: true,
+        result: { kind: 'handoff.materialize', sessionId: 'handoff-session' },
+      });
+      if (!response.ok || response.result.kind !== 'handoff.materialize') {
+        return;
+      }
+      expect(response.result.directory.startsWith(handoffRoot)).toBe(true);
+
+      const markdown = await readFile(response.result.markdownPath, 'utf8');
+      expect(markdown).toBe(response.result.markdown);
+      expect(markdown).toContain('Comment ID: comment-1');
+      const json = JSON.parse(await readFile(response.result.jsonPath, 'utf8')) as {
+        readonly schemaVersion: number;
+        readonly session: { readonly id: string };
+      };
+      expect(json.schemaVersion).toBe(1);
+      expect(json.session.id).toBe('handoff-session');
+
+      const imagePath = response.result.files[0]?.path;
+      expect(imagePath).toBeDefined();
+      expect(Array.from(await readFile(imagePath ?? ''))).toEqual([1, 2, 3]);
+
+      bridge.send(request('handoff.materialize', handoffPayload(bundle)));
+      const second = await bridge.next();
+
+      expect(second).toMatchObject({
+        ok: true,
+        result: { directory: response.result.directory },
+      });
+    } finally {
+      bridge.stop();
+    }
+  }, 20_000);
+
+  it('refuses a traversal-shaped handoff before writing anything', async () => {
+    const bundle = sampleBundle();
+    const bridge = startBridge(
+      {
+        UI_REVIEW_BRIDGE_ALLOWED_ORIGINS: ORIGIN,
+        HOME: home,
+        TMPDIR: handoffRoot,
+        TEMP: handoffRoot,
+        TMP: handoffRoot,
+      },
+      [ORIGIN],
+    );
+    try {
+      bridge.send(
+        request('handoff.materialize', {
+          ...(handoffPayload(bundle) as Record<string, unknown>),
+          sessionId: '../escape',
+        }),
+      );
+
+      const response = await bridge.next();
+
+      expect(response).toMatchObject({ ok: false, error: { code: 'invalid-session-id' } });
     } finally {
       bridge.stop();
     }

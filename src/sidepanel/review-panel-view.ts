@@ -40,6 +40,7 @@ export interface ReviewPanelViewOptions {
   readonly onRequestDeleteAttachment?: (attachmentId: string) => void;
   readonly onConfirmDeleteAttachment?: (commentId: string, attachmentId: string) => void;
   readonly onCancelDeleteAttachment?: () => void;
+  readonly onExportHandoff?: (sessionId: string) => void;
 }
 
 const PRIORITY_BADGES: Readonly<Record<CommentPriority, string>> = {
@@ -276,6 +277,42 @@ function renderClearConfirmation(
   return confirm;
 }
 
+/**
+ * One-action agent handoff: materialize the brief and copy it. The temporary-directory
+ * behavior is explained inline, and the action is disabled while there is nothing to hand
+ * off instead of producing an empty brief.
+ */
+function renderHandoffBlock(
+  session: SessionSummary,
+  options: ReviewPanelViewOptions,
+): HTMLElement {
+  const block = element('div', 'handoff');
+  block.append(element('p', 'handoff__label', 'Agent handoff'));
+
+  const actions = element('div', 'actions');
+  const copy = button('Copy agent brief', 'action', () => options.onExportHandoff?.(session.id));
+  actions.append(copy);
+
+  if (session.commentCount === 0) {
+    copy.disabled = true;
+    block.append(
+      actions,
+      element('p', 'footnote', 'Add at least one note before copying an agent brief.'),
+    );
+    return block;
+  }
+
+  block.append(
+    actions,
+    element(
+      'p',
+      'footnote',
+      'Writes review.md, review.json and the screenshots to a temporary per-session folder, then copies the brief to the clipboard. Exporting again updates the same folder; the session itself is never changed.',
+    ),
+  );
+  return block;
+}
+
 function renderSessionSection(
   session: SessionSummary | null,
   options: ReviewPanelViewOptions,
@@ -301,7 +338,7 @@ function renderSessionSection(
     ),
     ...ledgerRow('Notes', String(session.commentCount)),
   );
-  section.append(ledger);
+  section.append(ledger, renderHandoffBlock(session, options));
 
   if (options.pendingClearSessionId === session.id) {
     section.append(renderClearConfirmation(session, options));

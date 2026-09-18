@@ -34,6 +34,7 @@ describe('extension manifest', () => {
     expect(manifest.permissions).toContain('sidePanel');
     expect(manifest.permissions).toContain('tabs');
     expect(manifest.permissions).toContain('nativeMessaging');
+    expect(manifest.permissions).toContain('clipboardWrite');
     expect(manifest.side_panel.default_path).toBe('sidepanel.html');
     expect(manifest.background).toEqual({ service_worker: 'service-worker.js', type: 'module' });
   });

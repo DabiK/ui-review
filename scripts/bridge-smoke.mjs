@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Diagnostics for the built native bridge: spawns `dist/bridge/main.js`, speaks the real
- * Native Messaging framing and asserts a health check plus a write/read artifact round trip
- * in a throwaway data root. Run `npm run build` first.
+ * Native Messaging framing and asserts a health check, a write/read artifact round trip and
+ * an agent handoff materialization in throwaway roots. Run `npm run build` first.
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -20,6 +20,7 @@ if (!existsSync(bundlePath)) {
 
 const origin = 'chrome-extension://smoke-test/';
 const dataRoot = mkdtempSync(join(tmpdir(), 'ui-review-smoke-'));
+const handoffRoot = mkdtempSync(join(tmpdir(), 'ui-review-smoke-handoff-'));
 const protocolVersion = 1;
 
 function encode(message) {
@@ -58,6 +59,7 @@ function fail(message) {
   console.error(`[ui-review] bridge smoke test failed: ${message}`);
   child.stdin.end();
   rmSync(dataRoot, { recursive: true, force: true });
+  rmSync(handoffRoot, { recursive: true, force: true });
   process.exit(1);
 }
 
@@ -70,6 +72,7 @@ const child = spawn(process.execPath, [bundlePath], {
     ...process.env,
     UI_REVIEW_BRIDGE_ALLOWED_ORIGINS: origin,
     UI_REVIEW_BRIDGE_DATA_ROOT: dataRoot,
+    UI_REVIEW_BRIDGE_HANDOFF_ROOT: handoffRoot,
   },
   stdio: ['pipe', 'pipe', 'pipe'],
 });
@@ -154,8 +157,73 @@ async function main() {
   }
   console.log('[ui-review] read ok — round trip complete');
 
+  const image = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const brief = {
+    schemaVersion: 1,
+    generatedAt: '2026-09-18T10:06:00.000Z',
+    session: {
+      id: 'smoke-session',
+      name: 'smoke session',
+      status: 'stopped',
+      pageUrl: 'https://example.com/pricing',
+      hostname: 'example.com',
+      startedAt: '2026-09-18T10:00:00.000Z',
+      stoppedAt: '2026-09-18T10:05:00.000Z',
+    },
+    comments: [
+      {
+        index: 1,
+        id: 'comment-1',
+        text: 'smoke note',
+        category: 'UI',
+        priority: 'important',
+        createdAt: '2026-09-18T10:01:00.000Z',
+        updatedAt: '2026-09-18T10:01:00.000Z',
+        evidence: { dom: null, framework: null, sourceMap: null, visual: null },
+        attachments: [
+          {
+            id: 'attachment-1',
+            kind: 'element-crop',
+            mimeType: 'image/png',
+            width: 1,
+            height: 1,
+            byteLength: image.byteLength,
+            file: '01-element-crop.png',
+            unavailableReason: null,
+          },
+        ],
+      },
+    ],
+  };
+  send(
+    request('handoff.materialize', {
+      sessionId: 'smoke-session',
+      brief,
+      files: [
+        {
+          name: '01-element-crop.png',
+          mediaType: 'image/png',
+          contentBase64: image.toString('base64'),
+        },
+      ],
+    }),
+  );
+  const handoff = await nextFrame();
+  if (handoff.ok !== true || handoff.result?.kind !== 'handoff.materialize') {
+    fail(`unexpected handoff response: ${JSON.stringify(handoff)}`);
+  }
+  const markdown = readFileSync(handoff.result.markdownPath, 'utf8');
+  if (markdown !== handoff.result.markdown || !markdown.includes('Comment ID: comment-1')) {
+    fail(`handoff markdown differs at ${handoff.result.markdownPath}`);
+  }
+  if (!readFileSync(handoff.result.files[0].path).equals(image)) {
+    fail(`handoff image differs at ${handoff.result.files[0].path}`);
+  }
+  console.log(`[ui-review] handoff ok — ${handoff.result.directory}`);
+
   child.stdin.end();
   rmSync(dataRoot, { recursive: true, force: true });
+  rmSync(handoffRoot, { recursive: true, force: true });
   console.log('[ui-review] bridge smoke test passed');
 }
 

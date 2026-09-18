@@ -40,7 +40,7 @@ npm run verify   # lint → typecheck → unit tests → build
 | `npm test` | Unit and architecture tests |
 | `npm run bridge:install` | Install the local Native Messaging host for development |
 | `npm run bridge:uninstall` | Remove the host registration and installed bridge bundle |
-| `npm run bridge:smoke` | Spawn the built bridge and round-trip a real frame exchange |
+| `npm run bridge:smoke` | Spawn the built bridge and round-trip health, artifact and handoff frames |
 
 Load the unpacked extension: run `npm run build`, open `chrome://extensions`, enable
 Developer mode, click **Load unpacked** and select `dist/`. Clicking the toolbar icon opens
@@ -56,6 +56,19 @@ and a numbered row in the panel, where it can be edited or deleted; pins and row
 from persisted data after a page or panel reload. `Shift+Escape` (or **Exit review mode**)
 leaves review mode, and no listener or overlay exists on the page while review mode is off.
 The focused tab URL is read through the `tabs` permission and never leaves the machine.
+
+**Copy agent brief** (Session section) turns the selected review into one clipboard action.
+The versioned brief (`review.json`, schema version 1) and the exact Markdown (`review.md`)
+are built from the persisted session — comments in stored order, each with category,
+priority, evidence confidence, DOM context and screenshot paths. The local bridge writes
+`review.md`, `review.json` and every referenced screenshot into a temporary per-session
+directory (`/tmp/ui-review/handoff/<sessionId>` on macOS, the Windows temp equivalent,
+overridable with `UI_REVIEW_BRIDGE_HANDOFF_ROOT` for development), replacing it in place on
+every export so no copies accumulate; `review.md` is written last and then copied to the
+clipboard. The generated brief instructs the coding agent to change only the listed comment
+IDs and to report one result per ID. Export failures (bridge absent, clipboard refused) are
+shown explicitly and never modify or delete the stored review. The directory is temporary:
+delete it once the agent is done.
 
 Every saved note also carries local evidence: a curated DOM anchor (fingerprint, ancestry,
 visible text, role/name, allowlisted attributes, bounding box, viewport, computed styles) and
@@ -106,6 +119,8 @@ is compared at startup, and every message is schema-validated before the filesys
 touched. Artifact paths are built from conservative slugs; the filesystem store re-verifies
 containment after symlink resolution, so a session folder or file cannot escape its root.
 Writes are capped at 16 MiB decoded; Chrome caps host→extension messages at 1 MiB, so large
-artifacts are meant to be handed to the agent by local path (issue #6), not read back.
+artifacts are meant to be handed to the agent by local path, not read back. The handoff
+materializer applies the same rules to its temporary directory: validated session and file
+names, symlink containment, and a full directory replacement on every export.
 
 Local-first Chrome UI review annotations with agent-ready handoff

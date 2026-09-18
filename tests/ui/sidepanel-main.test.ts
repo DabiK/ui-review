@@ -45,6 +45,7 @@ const harness = vi.hoisted(() => {
 
   const clearedSessions: string[] = [];
   const syncedPages: string[] = [];
+  const exportedSessions: string[] = [];
   const deletedAttachments: {
     sessionId: string;
     commentId: string;
@@ -131,12 +132,20 @@ const harness = vi.hoisted(() => {
       message: 'The bridge is not part of this UI test.',
       code: null,
     }),
-    exportReviewHandoff: async () => ({
-      ok: false,
-      reason: 'bridge-unavailable',
-      message: 'The bridge is not part of this UI test.',
-      code: null,
-    }),
+    exportReviewHandoff: async (sessionId) => {
+      exportedSessions.push(sessionId);
+      return {
+        ok: true,
+        handoff: {
+          sessionId,
+          directory: '/tmp/ui-review/handoff/session-1',
+          markdownPath: '/tmp/ui-review/handoff/session-1/review.md',
+          jsonPath: '/tmp/ui-review/handoff/session-1/review.json',
+          files: [],
+          markdown: '# UI Review brief\n',
+        },
+      };
+    },
     notifyPanelChanged: () => undefined,
     syncPageOverlay: (pageUrl) => {
       syncedPages.push(pageUrl);
@@ -144,10 +153,11 @@ const harness = vi.hoisted(() => {
     subscribeToReviewChanges: () => () => undefined,
   };
 
-  return { container, comment, clearedSessions, syncedPages, deletedAttachments, reset: () => {
+  return { container, comment, clearedSessions, syncedPages, exportedSessions, deletedAttachments, reset: () => {
     cleared = false;
     clearedSessions.length = 0;
     syncedPages.length = 0;
+    exportedSessions.length = 0;
     deletedAttachments.length = 0;
   } };
 });
@@ -204,6 +214,22 @@ describe('side panel review actions', () => {
       expect(harness.deletedAttachments).toEqual([
         { sessionId: 'session-1', commentId: 'comment-1', attachmentId: 'attachment-crop' },
       ]);
+    });
+  });
+
+  it('copies the agent brief from the session section and reports the handoff directory', async () => {
+    await import('../../src/sidepanel/main');
+    await vi.waitFor(() => {
+      expect(document.querySelector('#session-name-input')).not.toBeNull();
+    });
+
+    findButton('Copy agent brief').click();
+
+    await vi.waitFor(() => {
+      expect(harness.exportedSessions).toEqual(['session-1']);
+      expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+        'Agent brief copied. Artifacts written to /tmp/ui-review/handoff/session-1',
+      );
     });
   });
 });
