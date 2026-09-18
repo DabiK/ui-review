@@ -6,6 +6,7 @@ import {
   deleteReviewComment,
   deleteReviewCommentAttachment,
   exportReviewHandoff,
+  loadBridgeSetup,
   loadOverlayState,
   loadReviewPanel,
   readSessionArtifact,
@@ -16,6 +17,7 @@ import {
   updateReviewComment,
   type AddReviewCommentInput,
   type AddReviewCommentResult,
+  type BridgeSetup,
   type CaptureCommentEvidenceInput,
   type CaptureCommentEvidenceResult,
   type ClearReviewSessionResult,
@@ -73,6 +75,7 @@ export interface AppContainer extends ReviewChangeBroadcaster {
     input: DeleteReviewCommentAttachmentInput,
   ): Promise<DeleteReviewCommentAttachmentResult>;
   checkLocalBridge(): Promise<LocalBridgeHealthResult>;
+  loadBridgeSetup(): Promise<BridgeSetup>;
   storeSessionArtifact(input: LocalBridgeArtifactWriteInput): Promise<LocalBridgeWriteResult>;
   readSessionArtifact(input: LocalBridgeArtifactRef): Promise<LocalBridgeReadResult>;
   exportReviewHandoff(sessionId: SessionId): Promise<ExportReviewHandoffResult>;
@@ -111,6 +114,11 @@ export function createAppContainer(): AppContainer {
     deleteReviewCommentAttachment: (input) =>
       deleteReviewCommentAttachment({ sessions }, input),
     checkLocalBridge: () => checkLocalBridge({ bridge }),
+    loadBridgeSetup: async () => {
+      // The bridge ships with the extension, so its release version must match this runtime.
+      const runtime = await runtimeInfo.read();
+      return loadBridgeSetup({ bridge, expectedVersion: runtime.extensionVersion });
+    },
     storeSessionArtifact: (input) => storeSessionArtifact({ bridge }, input),
     readSessionArtifact: (input) => readSessionArtifact({ bridge }, input),
     exportReviewHandoff: (sessionId) =>

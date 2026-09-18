@@ -280,6 +280,14 @@ export {
 } from './usecases/local-bridge';
 
 export {
+  BRIDGE_INCOMPATIBLE_MESSAGE,
+  BRIDGE_MISSING_MESSAGE,
+  loadBridgeSetup,
+  type BridgeSetup,
+  type LoadBridgeSetupDeps,
+} from './usecases/load-bridge-setup';
+
+export {
   loadOverlayState,
   type LoadOverlayStateDeps,
   type LoadOverlayStateInput,
