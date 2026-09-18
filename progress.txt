@@ -45,7 +45,7 @@ de vérité, le détail complet de chaque tâche y est.
 | 2 | Session lifecycle in side panel | DONE |
 | 3 | Generic DOM click-to-pin review | DONE |
 | 4 | Evidence capture and privacy controls | DONE |
-| 5 | Native Messaging bridge and artifact store | TODO |
+| 5 | Native Messaging bridge and artifact store | DONE |
 | 6 | Copy agent brief and materialize handoff | TODO |
 | 7 | React/Next component context adapter | TODO |
 | 8 | Resolve source maps to source context | TODO |
@@ -431,3 +431,96 @@ uniquement).
 
 Docs : `README.md` et `docs/architecture.md` décrivent le périmètre réel (tous schémas
 parsables, fallback textuel, limite `intent://`) ; l'affirmation fausse du round 3 est corrigée.
+
+### Itération 5 — Issue #5 (bridge Native Messaging sécurisé + stockage d'artefacts)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 43 fichiers / 364 tests, build triple :
+extension, content script, bridge). Test process réel + QA Chrome 153 réelle.
+
+Livré :
+
+- Cœur partagé `src/core/bridge/` : protocole versionné (`BRIDGE_PROTOCOL_VERSION = 1`, nom
+  d'hôte `com.dabik.ui_review_bridge`) avec **trois opérations allowlistées** exactes
+  (`bridge.health`, `artifact.write`, `artifact.read`) ; enveloppe
+  `{ protocolVersion, requestId, operation, origin, payload }` et réponse
+  `{ protocolVersion, requestId, ok, result | error }` avec codes d'erreur typés ; parseurs
+  stricts (clés exactes, version, opération, origine, segments de chemin, base64 canonique) ;
+  base64 pur (`encodeBase64`/`decodeBase64`, refus du non-canonique), taille max 16 MiB.
+- Port cœur `LocalBridgePort` (health / write / read) et use cases `checkLocalBridge`,
+  `storeSessionArtifact`, `readSessionArtifact` : validation des entrées (session/name sûrs,
+  type MIME allowlisté, contenu non vide et borné) puis délégation au port ; un port qui throw
+  devient un échec typé `bridge-unavailable`.
+- Bridge natif `src/bridge/` en architecture hexagonale : cœur pur (`handle-request`,
+  `artifact-path`, ports `ArtifactStorePort`/`AppDataPathsPort`, config allowlist fail-closed,
+  version) ; adaptateurs fs (contenement après résolution de symlinks, sidecar metadata,
+  refus `path-not-allowed`), in-memory (même builder de chemins), OS (`MacOsAppDataPaths`,
+  `WindowsAppDataPaths`, `LinuxAppDataPaths`, factory), Native Messaging (framing 4 octets LE
+  + serveur stdio, zéro HTTP/socket) ; `main.ts` composition root.
+- Sécurité : allowlist d'origines fail-closed via `UI_REVIEW_BRIDGE_ALLOWED_ORIGINS` (le
+  launcher installé la pose) **et** vérification de l'origine authoritative passée par Chrome
+  (`argv[2]`) au démarrage **et** vérification de l'`origin` d'enveloppe ; manifeste hôte
+  `allowed_origins` ; validation complète avant tout accès disque ; `UI_REVIEW_BRIDGE_DATA_ROOT`
+  permet un root de dev/smoke ; stockage par défaut dans le dossier applicatif OS
+  (`<app-data>/ui-review/sessions/<sid>/artifacts/<name>` + `metadata/`).
+- Extension : `ChromeNativeMessagingBridgeAdapter` (`chrome.runtime.sendNativeMessage`,
+  enveloppe versionnée, mapping des erreurs transport/parse en échecs typés) et
+  `InMemoryLocalBridgeAdapter` (exécute le vrai handler + store in-memory, sans process) ;
+  helpers de mapping partagés `src/adapters/local-bridge/` ; container étendu
+  (`checkLocalBridge`, `storeSessionArtifact`, `readSessionArtifact`) ; permission
+  `nativeMessaging` ajoutée au manifest (test mis à jour).
+- Build/outillage : `vite.bridge.config.ts` (3e passe, bundle Node ESM `dist/bridge/main.js`),
+  `npm run build` enchaîne les trois passes, `npm run dev` lance trois watchers ;
+  `scripts/install-bridge-host.mjs` (`bridge:install`/`bridge:uninstall`, calcule l'ID
+  d'extension unpacked à partir de `dist/`, copie le bundle dans `<app-data>/ui-review/bridge/`,
+  écrit le launcher + le manifeste hôte, retire tout proprement sans toucher aux sessions) ;
+  `scripts/bridge-smoke.mjs` (`bridge:smoke`, round trip health/write/read sur le vrai binaire).
+- Tests : `tests/core/bridge-protocol.test.ts` (26 cas : schéma, traversals, base64, limites,
+  réponses), `tests/core/bridge-base64.test.ts`, `tests/core/local-bridge-usecases.test.ts` ;
+  `tests/bridge/` : contract `ArtifactStorePort` exécuté sur les stores in-memory **et** fs
+  (+ échappements symlink, metadata corrompue/incohérente), contract `AppDataPathsPort`
+  exécuté sur macOS/Windows/Linux, handler, path builder, framing, serveur stdio, config,
+  version ; `tests/bridge/executable.test.ts` construit le vrai exécutable avec Vite, le
+  spawne et parle le framing réel (y compris refus fail-closed sans allowlist et origine
+  `argv[2]` refusée) ; `tests/adapters/local-bridge.contract.ts` exécuté sur l'adaptateur
+  Chrome (stub `sendNativeMessage` routé vers le vrai handler) **et** l'adaptateur in-process ;
+  `tests/architecture/bridge-boundaries.test.ts` (cœur bridge sans import Node/OS/adaptateur,
+  aucun `node:http`/`node:net`/`createServer`/`.listen(`, aucun `console.log`).
+
+Décisions :
+
+- Le protocole est le contrat partagé et vit dans `src/core/bridge/` (pur) ; le cœur du bridge
+  ne peut importer que `src/bridge/core/**` et `src/core/bridge/**`, garanti par test.
+- `sendNativeMessage` (un process par message) plutôt que `connectNative` : pas d'état de
+  connexion à gérer, each request idempotent côté protocole.
+- L'adaptateur in-process exécute le vrai handler : les tests UI/prévisualisation couvrent le
+  même code que l'exécutable, sans spawn.
+- Les chemins retournés restent sous le root configuré (pas de realpath exposé) ; le
+  contenement est vérifié après `realpath` (dossier de session ou fichier symlinké refusés),
+  et write/create restent les seuls effets de bord.
+- Sidecar metadata (`metadata/<name>.json`) pour restituer le type MIME au read ; metadata
+  manquante → type deviné par extension, metadata corrompue ou incohérente → `io-error`
+  explicite.
+- Limites documentées : write ≤ 16 MiB décodé (sous les 64 MiB extension→host de Chrome) ;
+  read via `sendNativeMessage` plafonné par Chrome à 1 MiB host→extension — les gros
+  artefacts sont destinés au handoff par chemin (#6), pas à être relus.
+- L'installateur copie le bundle dans le dossier applicatif OS : Chrome (sandbox macOS/TCC) ne
+  peut pas exécuter un launcher situé sous `~/Documents`. `bridge:uninstall` retire manifeste,
+  launcher et bundle installé, jamais `sessions/`.
+
+QA réelle :
+
+- `npm run bridge:smoke` : health + write + read sur le binaire construit, fichier vérifié sur
+  disque, process qui se termine proprement à la fermeture de stdin.
+- Chrome 153 (macOS), extension réellement chargée via CDP `Extensions.loadUnpacked` (ID
+  `npmianocnclhamocgmdffjjngkdfmnaf`, identique à celui calculé par l'installateur), hôte
+  natif installé par `npm run bridge:install` : round trip réel `sendNativeMessage` →
+  health `ok`, write + read des mêmes octets, refus `invalid-artifact-name` sur
+  `../escape.json`, artefact présent sur disque sous
+  `~/Library/Application Support/ui-review/sessions/e2e-session/artifacts/review.json`.
+- Aucun port : sonde `lsof -nP -a -i -p <pid>` sur le bridge en cours d'exécution → aucun
+  socket (status 1), cohérent avec le test d'architecture.
+- Nettoyage après QA : session e2e supprimée, `npm run bridge:uninstall` exécuté (aucun
+  enregistrement natif orphelin), harnais CDP jetable hors dépôt supprimé.
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
+contrat (issue #12). Issue #5 fermée sur les commits f288550..0118d3e.
