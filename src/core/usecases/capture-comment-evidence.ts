@@ -1,15 +1,20 @@
 import {
   createAttachment,
   createEvidence,
+  createFrameworkEvidence,
+  unavailableFrameworkObservation,
   type Attachment,
   type AttachmentKind,
   type Confidence,
+  type Evidence,
+  type FrameworkObservation,
 } from '../model/evidence';
 import { DomainValidationError } from '../model/errors';
 import type { CommentId, SessionId } from '../model/ids';
 import type { ReviewComment } from '../model/review-comment';
 import type { ReviewSessionRepository } from '../ports/review-session-repository';
 import type { ClockPort } from '../ports/clock';
+import type { ComponentContextPort } from '../ports/component-context';
 import type { IdGeneratorPort } from '../ports/id-generator';
 import type {
   CapturedImage,
@@ -19,24 +24,33 @@ import type {
 } from '../ports/screenshot-capture';
 
 /**
- * Attaches the visual evidence of a pinned element to an existing comment: one viewport
- * screenshot, one element crop and an explicit capture status. A capture failure is a
- * recorded outcome, never a thrown error, so the text/DOM comment stays usable.
+ * Attaches the captured evidence of a pinned element to an existing comment: one viewport
+ * screenshot, one element crop, the best-effort framework component context, and explicit
+ * capture statuses. A capture failure is a recorded outcome, never a thrown error, so the
+ * text/DOM comment stays usable.
  */
 
 const DEFAULT_FAILURE_REASON = 'The screenshot could not be captured.';
 const NO_TAB_REASON = 'Screenshots are unavailable because no browser tab context was provided.';
 
+export interface CommentEvidenceCaptureRequest extends ScreenshotCaptureRequest {
+  /** Frame that reported the comment; `null` targets the tab main frame. */
+  readonly frameId: number | null;
+  /** Stable DOM selector of the pinned element, resolved by the inspection adapter. */
+  readonly fingerprint: string;
+}
+
 export interface CaptureCommentEvidenceInput {
   readonly sessionId: SessionId;
   readonly commentId: CommentId;
   /** `null` when the transport could not provide a tab context; recorded as a failure. */
-  readonly capture: ScreenshotCaptureRequest | null;
+  readonly capture: CommentEvidenceCaptureRequest | null;
 }
 
 export interface CaptureCommentEvidenceDeps {
   readonly sessions: ReviewSessionRepository;
   readonly screenshots: ScreenshotCapturePort;
+  readonly components: ComponentContextPort;
   readonly clock: ClockPort;
   readonly ids: IdGeneratorPort;
 }
@@ -62,6 +76,7 @@ export async function captureCommentEvidence(
 
   const capturedAt = deps.clock.now();
   const outcome = await captureScreenshots(deps.screenshots, input.capture);
+  const framework = await detectComponentContext(deps.components, input.capture);
 
   const viewportAttachment = buildAttachment(
     deps.ids,
@@ -83,7 +98,7 @@ export async function captureCommentEvidence(
   );
   const capturedEverything = viewportAttachment !== null && cropAttachment !== null;
 
-  const evidence = createEvidence({
+  const visualEvidence = createEvidence({
     id: deps.ids.createId(),
     commentId: comment.id,
     capturedAt,
@@ -95,11 +110,17 @@ export async function captureCommentEvidence(
       reason: capturedEverything ? null : failureReason(outcome),
     },
   });
+  const frameworkEvidence = buildFrameworkEvidence(
+    deps.ids,
+    comment.id,
+    capturedAt,
+    framework,
+  );
 
   const updated: ReviewComment = {
     ...comment,
     attachments: [...comment.attachments, ...attachments],
-    evidence: [...comment.evidence, evidence],
+    evidence: [...comment.evidence, visualEvidence, frameworkEvidence],
   };
 
   await deps.sessions.save({
@@ -114,16 +135,63 @@ export async function captureCommentEvidence(
 
 async function captureScreenshots(
   screenshots: ScreenshotCapturePort,
-  request: ScreenshotCaptureRequest | null,
+  request: CommentEvidenceCaptureRequest | null,
 ): Promise<ScreenshotCaptureOutcome> {
   if (request === null) {
     return { viewport: null, elementCrop: null, failureReason: NO_TAB_REASON };
   }
   try {
-    return await screenshots.capture(request);
+    return await screenshots.capture({
+      tabId: request.tabId,
+      rect: request.rect,
+      viewport: request.viewport,
+    });
   } catch {
     // Resilience: a broken capture adapter must not cost the reviewer their note.
     return { viewport: null, elementCrop: null, failureReason: DEFAULT_FAILURE_REASON };
+  }
+}
+
+async function detectComponentContext(
+  components: ComponentContextPort,
+  request: CommentEvidenceCaptureRequest | null,
+): Promise<FrameworkObservation> {
+  if (request === null) {
+    return unavailableFrameworkObservation();
+  }
+  try {
+    return await components.detect({
+      tabId: request.tabId,
+      frameId: request.frameId,
+      fingerprint: request.fingerprint,
+    });
+  } catch {
+    // Resilience: framework context is best effort and never blocks the annotation.
+    return unavailableFrameworkObservation();
+  }
+}
+
+function buildFrameworkEvidence(
+  ids: IdGeneratorPort,
+  commentId: CommentId,
+  capturedAt: string,
+  observation: FrameworkObservation,
+): Evidence {
+  const id = ids.createId();
+  try {
+    return createFrameworkEvidence({ id, commentId, capturedAt, observation });
+  } catch (error) {
+    if (!(error instanceof DomainValidationError)) {
+      throw error;
+    }
+    // An adapter that returns a malformed observation must not cost the note either: the
+    // failure becomes an explicit unavailable observation.
+    return createFrameworkEvidence({
+      id,
+      commentId,
+      capturedAt,
+      observation: unavailableFrameworkObservation(),
+    });
   }
 }
 

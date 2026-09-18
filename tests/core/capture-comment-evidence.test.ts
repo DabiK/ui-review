@@ -15,11 +15,14 @@ import {
   FakeScreenshotCaptureAdapter,
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
+import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
 
 const PAGE_URL = 'https://example.com/pricing';
 const VIEWPORT = { width: 1440, height: 900 };
 const CAPTURE = {
   tabId: 7,
+  frameId: 0,
+  fingerprint: 'main > button',
   rect: { x: 10, y: 20, width: 100, height: 32 },
   viewport: VIEWPORT,
 };
@@ -58,10 +61,15 @@ function successOutcome(): ScreenshotCaptureOutcome {
   };
 }
 
-function deps(repository: InMemoryReviewSessionRepository, screenshots: FakeScreenshotCaptureAdapter) {
+function deps(
+  repository: InMemoryReviewSessionRepository,
+  screenshots: FakeScreenshotCaptureAdapter,
+  components: FakeComponentContextAdapter = new FakeComponentContextAdapter(),
+) {
   return {
     sessions: repository,
     screenshots,
+    components,
     clock: new FixedClockAdapter('2026-09-18T10:06:00.000Z'),
     ids: new SequentialIdGeneratorAdapter('evidence'),
   };
@@ -95,16 +103,131 @@ describe('captureCommentEvidence', () => {
     expect(result.comment.attachments[0]).toMatchObject({ width: 1440, height: 900 });
     expect(result.comment.attachments[1]).toMatchObject({ width: 100, height: 32 });
 
-    expect(result.comment.evidence).toHaveLength(1);
+    expect(result.comment.evidence).toHaveLength(2);
     expect(result.comment.evidence[0]).toMatchObject({
       commentId: 'comment-1',
       confidence: 'confirmed',
       capturedAt: '2026-09-18T10:06:00.000Z',
       payload: { type: 'visual', viewport: 'captured', elementCrop: 'captured', reason: null },
     });
+    expect(result.comment.evidence[1]).toMatchObject({
+      commentId: 'comment-1',
+      confidence: 'unavailable',
+      payload: { type: 'framework', framework: 'unknown', componentName: null },
+    });
 
     const stored = await repository.findById('session-1');
     expect(stored?.comments[0]?.attachments).toHaveLength(2);
+  });
+
+  it('links the framework observation returned by the inspection port', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const components = new FakeComponentContextAdapter({
+      observation: {
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingPage', 'PricingCard'],
+        confidence: 'confirmed',
+      },
+    });
+
+    const result = await captureCommentEvidence(deps(repository, screenshots, components), {
+      sessionId: 'session-1',
+      commentId: 'comment-1',
+      capture: CAPTURE,
+    });
+
+    if (!result.ok) {
+      throw new Error('capture failed');
+    }
+
+    expect(components.requests).toEqual([
+      { tabId: 7, frameId: 0, fingerprint: 'main > button' },
+    ]);
+    expect(result.comment.evidence[1]).toMatchObject({
+      commentId: 'comment-1',
+      confidence: 'confirmed',
+      payload: {
+        type: 'framework',
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingPage', 'PricingCard'],
+      },
+    });
+  });
+
+  it('keeps a production-like framework observation explicitly inferred', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const components = new FakeComponentContextAdapter({
+      observation: {
+        framework: 'react',
+        componentName: 'Yt',
+        componentChain: ['t', 'Yt'],
+        confidence: 'inferred',
+      },
+    });
+
+    const result = await captureCommentEvidence(deps(repository, screenshots, components), {
+      sessionId: 'session-1',
+      commentId: 'comment-1',
+      capture: CAPTURE,
+    });
+
+    if (!result.ok) {
+      throw new Error('capture failed');
+    }
+    expect(result.comment.evidence[1]).toMatchObject({
+      confidence: 'inferred',
+      payload: { type: 'framework', componentName: 'Yt' },
+    });
+  });
+
+  it('degrades a broken inspection port into explicit unavailable evidence', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const components = new FakeComponentContextAdapter();
+    components.detect = async () => {
+      throw new Error('inspection adapter crash');
+    };
+
+    const result = await captureCommentEvidence(deps(repository, screenshots, components), {
+      sessionId: 'session-1',
+      commentId: 'comment-1',
+      capture: CAPTURE,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.comment.evidence[1]).toMatchObject({
+      confidence: 'unavailable',
+      payload: { type: 'framework', framework: 'unknown', componentName: null },
+    });
+  });
+
+  it('replaces a malformed observation with an explicit unavailable one', async () => {
+    const repository = await setupRepository();
+    const screenshots = new FakeScreenshotCaptureAdapter({ outcome: successOutcome() });
+    const components = new FakeComponentContextAdapter();
+    components.detect = async () => ({ framework: 'angular' }) as never;
+
+    const result = await captureCommentEvidence(deps(repository, screenshots, components), {
+      sessionId: 'session-1',
+      commentId: 'comment-1',
+      capture: CAPTURE,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.comment.evidence[1]).toMatchObject({
+      confidence: 'unavailable',
+      payload: { type: 'framework', framework: 'unknown', componentName: null },
+    });
   });
 
   it('records a partial capture as inferred with an explicit reason', async () => {
@@ -191,6 +314,10 @@ describe('captureCommentEvidence', () => {
       throw new Error('expected visual evidence');
     }
     expect(payload.reason).toContain('browser tab');
+    expect(result.comment.evidence[1]).toMatchObject({
+      confidence: 'unavailable',
+      payload: { type: 'framework', framework: 'unknown' },
+    });
   });
 
   it('degrades a broken capture adapter into explicit failed evidence', async () => {
@@ -269,7 +396,7 @@ describe('deleteReviewCommentAttachment', () => {
       return;
     }
     expect(removed.comment.attachments.map((attachment) => attachment.id)).toEqual([cropId]);
-    expect(removed.comment.evidence).toHaveLength(1);
+    expect(removed.comment.evidence).toHaveLength(2);
 
     const stored = await repository.findById('session-1');
     expect(stored?.comments[0]?.attachments.map((attachment) => attachment.id)).toEqual([cropId]);

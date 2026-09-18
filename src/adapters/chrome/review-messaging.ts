@@ -112,6 +112,7 @@ export function pushOverlaySyncToTabs(pageUrl: string): void {
 export interface ReviewRequestSender {
   readonly url: string | null;
   readonly tabId: number | null;
+  readonly frameId: number | null;
 }
 
 export type ReviewRequestHandler = (
@@ -128,6 +129,7 @@ export function listenForReviewRequests(handler: ReviewRequestHandler): void {
     const requestSender: ReviewRequestSender = {
       url: sender.tab?.url ?? null,
       tabId: sender.tab?.id ?? null,
+      frameId: sender.frameId ?? null,
     };
     void handler(message, requestSender).then(sendResponse, () => {
       sendResponse(null);

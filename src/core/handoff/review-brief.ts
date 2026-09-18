@@ -1252,10 +1252,14 @@ function pushComment(
     );
   }
   if (framework !== null) {
-    const name = framework.componentName ?? 'unknown component';
-    lines.push(`Framework evidence: ${framework.confidence} — ${framework.framework} · ${name}`);
-    if (framework.componentChain.length > 0) {
-      lines.push(`Component chain: ${framework.componentChain.join(' > ')}`);
+    if (framework.confidence === 'unavailable') {
+      lines.push('Framework context: unavailable');
+    } else {
+      const name = framework.componentName ?? 'unknown component';
+      lines.push(`Framework evidence: ${framework.confidence} — ${framework.framework} · ${name}`);
+      if (framework.componentChain.length > 0) {
+        lines.push(`Component chain: ${framework.componentChain.join(' > ')}`);
+      }
     }
   }
   if (sourceMap !== null) {

@@ -20,6 +20,7 @@ import {
   TINY_PNG_DATA_URL,
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
+import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
 import { FixedClockAdapter } from '@adapters/runtime/fixed-clock';
 import { SequentialIdGeneratorAdapter } from '@adapters/runtime/sequential-id-generator';
 import { StaticActivePageAdapter } from '@adapters/runtime/static-active-page';
@@ -37,7 +38,7 @@ import type { ReviewRequestSender } from '../../src/adapters/chrome/review-messa
 
 const PAGE_URL = 'https://example.com/pricing';
 const VIEWPORT = { width: 1440, height: 900 };
-const SENDER: ReviewRequestSender = { url: PAGE_URL, tabId: 7 };
+const SENDER: ReviewRequestSender = { url: PAGE_URL, tabId: 7, frameId: 0 };
 
 function makeContainer(
   repository: InMemoryReviewSessionRepository,
@@ -45,6 +46,7 @@ function makeContainer(
   ids: SequentialIdGeneratorAdapter,
   bus: InMemoryReviewChangeBus,
   screenshots: FakeScreenshotCaptureAdapter,
+  components: FakeComponentContextAdapter = new FakeComponentContextAdapter(),
 ): ReviewMessageContainer {
   return {
     loadOverlayState: (pageUrl: string): Promise<OverlayState> =>
@@ -52,7 +54,10 @@ function makeContainer(
     addReviewComment: (input: AddReviewCommentInput) =>
       addReviewComment({ sessions: repository, clock, ids }, input),
     captureCommentEvidence: (input: CaptureCommentEvidenceInput): Promise<CaptureCommentEvidenceResult> =>
-      captureCommentEvidence({ sessions: repository, screenshots, clock, ids }, input),
+      captureCommentEvidence(
+        { sessions: repository, screenshots, components, clock, ids },
+        input,
+      ),
     stopReviewSession: (sessionId: SessionId): Promise<StopReviewSessionResult> =>
       stopReviewSession({ sessions: repository, clock }, { sessionId }),
     syncPageOverlay: (pageUrl: string) => {
@@ -100,6 +105,14 @@ describe('overlay comment round-trip', () => {
         failureReason: null,
       },
     });
+    const components = new FakeComponentContextAdapter({
+      observation: {
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingPage', 'PricingCard'],
+        confidence: 'confirmed',
+      },
+    });
     await repository.save(
       createReviewSession({
         id: 'session-1',
@@ -110,7 +123,7 @@ describe('overlay comment round-trip', () => {
     );
 
     const response = await handleReviewRequest(
-      makeContainer(repository, clock, ids, bus, screenshots),
+      makeContainer(repository, clock, ids, bus, screenshots, components),
       commentCreateRequest(),
       SENDER,
     );
@@ -118,6 +131,9 @@ describe('overlay comment round-trip', () => {
     expect(response).toEqual({ ok: true, commentId: 'comment-1' });
     expect(bus.panelNotifications).toBe(1);
     expect(bus.syncedPages).toEqual([PAGE_URL]);
+    expect(components.requests).toEqual([
+      { tabId: 7, frameId: 0, fingerprint: 'main > button' },
+    ]);
 
     // A reload creates fresh adapters: both views must rebuild from the stored aggregate.
     const reloadedPanel = await loadReviewPanel(
@@ -166,6 +182,12 @@ describe('overlay comment round-trip', () => {
           viewport: 'captured',
           elementCrop: 'captured',
           reason: null,
+        },
+        frameworkEvidence: {
+          confidence: 'confirmed',
+          framework: 'react',
+          componentName: 'PricingCard',
+          componentChain: ['PricingPage', 'PricingCard'],
         },
       },
     ]);

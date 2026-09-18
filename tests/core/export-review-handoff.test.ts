@@ -19,6 +19,7 @@ import {
   FakeScreenshotCaptureAdapter,
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
+import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
 
 const PAGE_URL = 'https://example.com/pricing';
 const VIEWPORT = { width: 1440, height: 900 };
@@ -95,13 +96,20 @@ async function addComment(harness: Harness, text: string): Promise<string> {
           failureReason: null,
         },
       }),
+      components: new FakeComponentContextAdapter(),
       clock: harness.clock,
       ids: harness.ids,
     },
     {
       sessionId: harness.sessionId,
       commentId: result.comment.id,
-      capture: { tabId: 7, rect: ANCHOR.boundingBox, viewport: VIEWPORT },
+      capture: {
+        tabId: 7,
+        frameId: 0,
+        fingerprint: ANCHOR.fingerprint,
+        rect: ANCHOR.boundingBox,
+        viewport: VIEWPORT,
+      },
     },
   );
 

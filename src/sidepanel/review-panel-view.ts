@@ -5,6 +5,7 @@ import type {
   CommentCategory,
   CommentPriority,
   CommentSummary,
+  FrameworkEvidenceSummary,
   ReviewPanelState,
   SessionSummary,
   VisualEvidenceSummary,
@@ -53,6 +54,12 @@ const PRIORITY_LABELS: Readonly<Record<CommentPriority, string>> = {
   critical: 'Critical',
   important: 'Important',
   minor: 'Minor',
+};
+
+const FRAMEWORK_LABELS: Readonly<Record<FrameworkEvidenceSummary['framework'], string>> = {
+  react: 'React',
+  vue: 'Vue',
+  unknown: 'Framework',
 };
 
 /** Plate legends from the design direction: « Fig. 1 · Viewport », « Fig. 2 · Element crop ». */
@@ -550,6 +557,26 @@ function captureStatusMessage(visual: VisualEvidenceSummary): string | null {
   return null;
 }
 
+/**
+ * Framework context is best effort and says so: `confirmed` renders as `detected`,
+ * `inferred` is always labelled, and a missing context is stated instead of hidden.
+ */
+function frameworkStatusMessage(framework: FrameworkEvidenceSummary): string {
+  const label = FRAMEWORK_LABELS[framework.framework];
+
+  if (framework.confidence === 'unavailable') {
+    return `${label} context: unavailable`;
+  }
+  if (framework.confidence === 'confirmed') {
+    return framework.componentName === null
+      ? `${label} context: detected`
+      : `${label} context: detected — ${framework.componentName}`;
+  }
+  return framework.componentName === null
+    ? `${label} context: inferred (best effort)`
+    : `${label} context: inferred — ${framework.componentName} (best effort)`;
+}
+
 function renderCommentRow(
   comment: CommentSummary,
   position: number,
@@ -576,6 +603,16 @@ function renderCommentRow(
 
   if (comment.anchorLabel !== null) {
     body.append(element('p', 'comment__anchor', `Pinned to ${comment.anchorLabel}`));
+  }
+
+  if (comment.frameworkEvidence !== null) {
+    body.append(
+      element(
+        'p',
+        'comment__framework',
+        frameworkStatusMessage(comment.frameworkEvidence),
+      ),
+    );
   }
 
   if (comment.attachments.length > 0) {

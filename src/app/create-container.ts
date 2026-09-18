@@ -40,6 +40,7 @@ import {
   type UpdateReviewCommentResult,
 } from '@core';
 import { ChromeActivePageAdapter } from '@adapters/chrome/active-page';
+import { ChromeComponentContextAdapter } from '@adapters/chrome/component-context';
 import { ChromeNativeMessagingBridgeAdapter } from '@adapters/chrome/native-bridge';
 import { ChromeReviewChannel } from '@adapters/chrome/review-channel';
 import { ChromeScreenshotCaptureAdapter } from '@adapters/chrome/screenshot-capture';
@@ -85,6 +86,7 @@ export function createAppContainer(): AppContainer {
   const ids = new CryptoIdGeneratorAdapter();
   const channel = new ChromeReviewChannel();
   const screenshots = new ChromeScreenshotCaptureAdapter();
+  const components = new ChromeComponentContextAdapter();
   const bridge = new ChromeNativeMessagingBridgeAdapter({ ids });
   const clipboard = new NavigatorClipboardAdapter();
 
@@ -98,7 +100,7 @@ export function createAppContainer(): AppContainer {
     loadOverlayState: (pageUrl) => loadOverlayState({ sessions }, { pageUrl }),
     addReviewComment: (input) => addReviewComment({ sessions, clock, ids }, input),
     captureCommentEvidence: (input) =>
-      captureCommentEvidence({ sessions, screenshots, clock, ids }, input),
+      captureCommentEvidence({ sessions, screenshots, components, clock, ids }, input),
     updateReviewComment: (input) => updateReviewComment({ sessions, clock }, input),
     deleteReviewComment: (input) => deleteReviewComment({ sessions }, input),
     deleteReviewCommentAttachment: (input) =>

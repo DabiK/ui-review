@@ -41,11 +41,36 @@ export interface DomEvidence {
   readonly computedStyles: Readonly<Record<string, string>>;
 }
 
+export type FrameworkKind = 'react' | 'vue' | 'unknown';
+
 export interface FrameworkEvidence {
   readonly type: 'framework';
-  readonly framework: 'react' | 'vue' | 'unknown';
+  readonly framework: FrameworkKind;
   readonly componentName: string | null;
   readonly componentChain: readonly string[];
+}
+
+/**
+ * Best-effort component context observed on the page by a framework inspection adapter.
+ * The adapter owns the confidence decision: `confirmed` when development metadata was
+ * directly observed, `inferred` for production-like or heuristic metadata, and
+ * `unavailable` when the page exposed nothing usable.
+ */
+export interface FrameworkObservation {
+  readonly framework: FrameworkKind;
+  readonly componentName: string | null;
+  readonly componentChain: readonly string[];
+  readonly confidence: Confidence;
+}
+
+/** Neutral observation recorded when no framework metadata could be read at all. */
+export function unavailableFrameworkObservation(): FrameworkObservation {
+  return {
+    framework: 'unknown',
+    componentName: null,
+    componentChain: [],
+    confidence: 'unavailable',
+  };
 }
 
 export interface SourceMapEvidence {
@@ -168,7 +193,7 @@ export function createEvidence(input: CreateEvidenceInput): Evidence {
   return {
     id,
     commentId,
-    confidence: input.confidence,
+    confidence: assertConfidence(input.confidence),
     capturedAt,
     payload: assertEvidencePayload(input.payload),
   };
@@ -181,9 +206,47 @@ function assertEvidencePayload(payload: EvidencePayload): EvidencePayload {
     case 'visual':
       return assertVisualEvidence(payload);
     case 'framework':
+      return assertFrameworkEvidence(payload);
     case 'source-map':
       return payload;
   }
+}
+
+function assertConfidence(value: string): Confidence {
+  const level = CONFIDENCE_LEVELS.find((candidate) => candidate === value);
+  if (level === undefined) {
+    throw new DomainValidationError(
+      'confidence',
+      'confidence must be confirmed, inferred or unavailable',
+    );
+  }
+  return level;
+}
+
+function assertFrameworkKind(value: string): FrameworkKind {
+  if (value !== 'react' && value !== 'vue' && value !== 'unknown') {
+    throw new DomainValidationError('framework', 'framework must be react, vue or unknown');
+  }
+  return value;
+}
+
+function assertFrameworkEvidence(value: FrameworkEvidence): FrameworkEvidence {
+  return {
+    type: 'framework',
+    framework: assertFrameworkKind(value.framework),
+    componentName:
+      value.componentName === null
+        ? null
+        : truncate(assertNonBlank(value.componentName, 'componentName'), MAX_COMPONENT_NAME_LENGTH),
+    componentChain: value.componentChain
+      .slice(0, MAX_COMPONENT_CHAIN_LENGTH)
+      .map((name, index) =>
+        truncate(
+          assertNonBlank(name, `componentChain[${index}]`),
+          MAX_COMPONENT_NAME_LENGTH,
+        ),
+      ),
+  };
 }
 
 function assertVisualEvidence(value: VisualEvidence): VisualEvidence {
@@ -258,6 +321,40 @@ export function createDomEvidence(input: CreateDomEvidenceInput): Evidence {
     confidence: input.confidence ?? 'confirmed',
     payload: { type: 'dom', ...input.anchor },
   });
+}
+
+const MAX_COMPONENT_NAME_LENGTH = 120;
+const MAX_COMPONENT_CHAIN_LENGTH = 8;
+
+export interface CreateFrameworkEvidenceInput {
+  readonly id: EvidenceId;
+  readonly commentId: CommentId;
+  readonly capturedAt: string;
+  readonly observation: FrameworkObservation;
+}
+
+/**
+ * Creates the best-effort component context linked to a comment. Bounds are enforced again
+ * here: page-provided names and chains are untrusted even when an adapter already sanitized
+ * them, and an out-of-vocabulary observation is rejected instead of persisted.
+ */
+export function createFrameworkEvidence(input: CreateFrameworkEvidenceInput): Evidence {
+  return createEvidence({
+    id: input.id,
+    commentId: input.commentId,
+    capturedAt: input.capturedAt,
+    confidence: input.observation.confidence,
+    payload: {
+      type: 'framework',
+      framework: input.observation.framework,
+      componentName: input.observation.componentName,
+      componentChain: input.observation.componentChain,
+    },
+  });
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
 function assertDomEvidence(value: DomEvidence): DomEvidence {

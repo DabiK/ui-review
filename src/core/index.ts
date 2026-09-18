@@ -73,6 +73,8 @@ export {
   createAttachment,
   createDomEvidence,
   createEvidence,
+  createFrameworkEvidence,
+  unavailableFrameworkObservation,
   type Attachment,
   type AttachmentKind,
   type AttachmentStorage,
@@ -80,11 +82,14 @@ export {
   type CreateAttachmentInput,
   type CreateDomEvidenceInput,
   type CreateEvidenceInput,
+  type CreateFrameworkEvidenceInput,
   type DomAnchor,
   type DomEvidence,
   type Evidence,
   type EvidencePayload,
   type FrameworkEvidence,
+  type FrameworkKind,
+  type FrameworkObservation,
   type Rect,
   type SourceMapEvidence,
   type Viewport,
@@ -163,6 +168,10 @@ export {
 export type { ActivePageInfo, ActivePagePort } from './ports/active-page';
 export type { ClipboardPort, ClipboardWriteResult } from './ports/clipboard';
 export type { ClockPort } from './ports/clock';
+export type {
+  ComponentContextPort,
+  ComponentContextRequest,
+} from './ports/component-context';
 export type { IdGeneratorPort } from './ports/id-generator';
 export type {
   LocalArtifactContent,
@@ -235,6 +244,7 @@ export {
   type CaptureCommentEvidenceDeps,
   type CaptureCommentEvidenceInput,
   type CaptureCommentEvidenceResult,
+  type CommentEvidenceCaptureRequest,
 } from './usecases/capture-comment-evidence';
 
 export {
@@ -271,6 +281,7 @@ export {
   type ActivePageSummary,
   type AttachmentSummary,
   type CommentSummary,
+  type FrameworkEvidenceSummary,
   type LoadReviewPanelDeps,
   type LoadReviewPanelInput,
   type ReviewPanelState,

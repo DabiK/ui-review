@@ -41,6 +41,12 @@ const harness = vi.hoisted(() => {
       elementCrop: 'captured',
       reason: 'The visible page could not be captured.',
     },
+    frameworkEvidence: {
+      confidence: 'confirmed',
+      framework: 'react',
+      componentName: 'CheckoutForm',
+      componentChain: ['CheckoutPage', 'CheckoutForm'],
+    },
   };
 
   const clearedSessions: string[] = [];

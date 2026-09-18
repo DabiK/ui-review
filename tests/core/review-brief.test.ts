@@ -3,10 +3,12 @@ import {
   REVIEW_BRIEF_SCHEMA_VERSION,
   buildReviewBrief,
   createDomEvidence,
+  createFrameworkEvidence,
   createReviewComment,
   createReviewSession,
   parseReviewBriefDocument,
   renderReviewBriefMarkdown,
+  type FrameworkObservation,
   type ReviewComment,
   type ReviewSession,
 } from '@core';
@@ -19,6 +21,7 @@ import {
   TINY_PNG_DATA_URL,
   createTinyCapturedImage,
 } from '@adapters/runtime/fake-screenshot-capture';
+import { FakeComponentContextAdapter } from '@adapters/runtime/fake-component-context';
 
 const STARTED_AT = '2026-09-18T10:00:00.000Z';
 const GENERATED_AT = '2026-09-18T10:06:00.000Z';
@@ -82,11 +85,14 @@ async function sessionWithScreenshots(): Promise<ReviewSession> {
           failureReason: null,
         },
       }),
+      components: new FakeComponentContextAdapter(),
       clock,
       ids,
     },
     { sessionId: 'session-1', commentId: 'comment-1', capture: {
       tabId: 7,
+      frameId: 0,
+      fingerprint: '#checkout > form > button:nth-of-type(1)',
       rect: { x: 240, y: 512, width: 138, height: 46 },
       viewport: VIEWPORT,
     } },
@@ -353,5 +359,71 @@ describe('parseReviewBriefDocument', () => {
     expect(extraField.ok).toBe(false);
     expect(wrongIndex.ok).toBe(false);
     expect(danglingFile).toMatchObject({ ok: false, code: 'invalid-brief' });
+  });
+});
+
+describe('framework evidence in the brief', () => {
+  function sessionWithFramework(observation: FrameworkObservation): ReviewSession {
+    const comment: ReviewComment = {
+      ...createReviewComment({
+        id: 'comment-1',
+        sessionId: 'session-1',
+        text: 'The card spacing is off.',
+        pageUrl: PAGE_URL,
+        viewport: VIEWPORT,
+        createdAt: STARTED_AT,
+      }),
+      evidence: [
+        createFrameworkEvidence({
+          id: 'evidence-framework',
+          commentId: 'comment-1',
+          capturedAt: STARTED_AT,
+          observation,
+        }),
+      ],
+    };
+    return { ...makeSession(), comments: [comment] };
+  }
+
+  it('serializes the framework evidence and renders it in the Markdown', () => {
+    const session = sessionWithFramework({
+      framework: 'react',
+      componentName: 'PricingCard',
+      componentChain: ['PricingPage', 'PricingCard'],
+      confidence: 'inferred',
+    });
+
+    const bundle = buildReviewBrief(session, { generatedAt: GENERATED_AT });
+
+    expect(bundle.brief.comments[0]?.evidence.framework).toEqual({
+      confidence: 'inferred',
+      framework: 'react',
+      componentName: 'PricingCard',
+      componentChain: ['PricingPage', 'PricingCard'],
+    });
+
+    const markdown = renderReviewBriefMarkdown(bundle.brief, pathsFor());
+    expect(markdown).toContain('Framework evidence: inferred — react · PricingCard');
+    expect(markdown).toContain('Component chain: PricingPage > PricingCard');
+
+    const parsed = parseReviewBriefDocument(JSON.parse(JSON.stringify(bundle.brief)));
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('states an unavailable framework context instead of inventing a component', () => {
+    const session = sessionWithFramework({
+      framework: 'unknown',
+      componentName: null,
+      componentChain: [],
+      confidence: 'unavailable',
+    });
+
+    const markdown = renderReviewBriefMarkdown(
+      buildReviewBrief(session, { generatedAt: GENERATED_AT }).brief,
+      pathsFor(),
+    );
+
+    expect(markdown).toContain('Framework context: unavailable');
+    expect(markdown).not.toContain('unknown component');
   });
 });

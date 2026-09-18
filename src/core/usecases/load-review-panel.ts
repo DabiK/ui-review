@@ -2,6 +2,7 @@ import type {
   Attachment,
   AttachmentKind,
   Confidence,
+  FrameworkKind,
   VisualCaptureStatus,
   VisualEvidence,
 } from '../model/evidence';
@@ -54,6 +55,17 @@ export interface VisualEvidenceSummary {
   readonly reason: string | null;
 }
 
+/**
+ * Component context attached to a comment. `confidence` is the canonical level; the UI
+ * renders `confirmed` as "detected" and never presents `inferred` as source truth.
+ */
+export interface FrameworkEvidenceSummary {
+  readonly confidence: Confidence;
+  readonly framework: FrameworkKind;
+  readonly componentName: string | null;
+  readonly componentChain: readonly string[];
+}
+
 export interface CommentSummary {
   readonly id: CommentId;
   readonly text: string;
@@ -67,6 +79,8 @@ export interface CommentSummary {
   readonly attachments: readonly AttachmentSummary[];
   /** Explicit capture outcome, when a visual capture was attempted for this comment. */
   readonly visualEvidence: VisualEvidenceSummary | null;
+  /** Best-effort framework context observed for this comment, when one was recorded. */
+  readonly frameworkEvidence: FrameworkEvidenceSummary | null;
 }
 
 export interface ReviewPanelState {
@@ -182,6 +196,7 @@ function toCommentSummary(comment: ReviewComment): CommentSummary {
     anchorLabel: anchorLabel(comment),
     attachments: comment.attachments.map(toAttachmentSummary),
     visualEvidence: visualEvidence(comment),
+    frameworkEvidence: frameworkEvidence(comment),
   };
 }
 
@@ -209,6 +224,21 @@ function visualEvidence(comment: ReviewComment): VisualEvidenceSummary | null {
         reason: payload.reason,
       };
     }
+  }
+  return null;
+}
+
+function frameworkEvidence(comment: ReviewComment): FrameworkEvidenceSummary | null {
+  for (const evidence of comment.evidence) {
+    if (evidence.payload.type !== 'framework') {
+      continue;
+    }
+    return {
+      confidence: evidence.confidence,
+      framework: evidence.payload.framework,
+      componentName: evidence.payload.componentName,
+      componentChain: [...evidence.payload.componentChain],
+    };
   }
   return null;
 }

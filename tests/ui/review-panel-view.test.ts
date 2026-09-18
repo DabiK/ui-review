@@ -38,6 +38,7 @@ function makeComment(overrides: Partial<CommentSummary> = {}): CommentSummary {
     anchorLabel: 'Save',
     attachments: [],
     visualEvidence: null,
+    frameworkEvidence: null,
     ...overrides,
   };
 }
@@ -515,6 +516,80 @@ describe('renderReviewPanel', () => {
     );
 
     expect(root.querySelector('.comment__capture-status')).toBeNull();
+  });
+
+  it('renders confirmed framework context as detected', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({
+      frameworkEvidence: {
+        confidence: 'confirmed',
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingPage', 'PricingCard'],
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.textContent).toContain('React context: detected — PricingCard');
+  });
+
+  it('never labels inferred framework context as detected source truth', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({
+      frameworkEvidence: {
+        confidence: 'inferred',
+        framework: 'react',
+        componentName: 'Yt',
+        componentChain: ['t', 'Yt'],
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.textContent).toContain('React context: inferred — Yt (best effort)');
+    expect(root.textContent).not.toContain('detected');
+  });
+
+  it('states an explicit unavailable framework context', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({
+      frameworkEvidence: {
+        confidence: 'unavailable',
+        framework: 'unknown',
+        componentName: null,
+        componentChain: [],
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.textContent).toContain('Framework context: unavailable');
+  });
+
+  it('shows no framework badge when no observation was recorded', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({ frameworkEvidence: null });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.querySelector('.comment__framework')).toBeNull();
   });
 
   it('surfaces an explicit notice instead of failing silently', () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createDomEvidence,
+  createFrameworkEvidence,
   createReviewComment,
   createReviewSession,
   loadReviewPanel,
@@ -197,8 +198,36 @@ describe('loadReviewPanel', () => {
         anchorLabel: 'Save',
         attachments: [],
         visualEvidence: null,
+        frameworkEvidence: null,
       },
     ]);
+  });
+
+  it('exposes the framework evidence of a comment', async () => {
+    const repository = new InMemoryReviewSessionRepository();
+    const session = makeSession('session-1');
+    const framework = createFrameworkEvidence({
+      id: 'evidence-framework',
+      commentId: 'comment-1',
+      capturedAt: '2026-09-18T10:05:00.000Z',
+      observation: {
+        framework: 'react',
+        componentName: 'PricingCard',
+        componentChain: ['PricingPage', 'PricingCard'],
+        confidence: 'inferred',
+      },
+    });
+    const comment = { ...makeComment(session), evidence: [makeDomEvidence(), framework] };
+    await repository.save({ ...session, comments: [comment] });
+
+    const panel = await loadReviewPanel(deps(repository), { selectedSessionId: 'session-1' });
+
+    expect(panel.comments[0]?.frameworkEvidence).toEqual({
+      confidence: 'inferred',
+      framework: 'react',
+      componentName: 'PricingCard',
+      componentChain: ['PricingPage', 'PricingCard'],
+    });
   });
 
   it('selects another stored session and exposes its own comments', async () => {

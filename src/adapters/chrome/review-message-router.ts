@@ -61,8 +61,8 @@ export async function handleReviewRequest(
         return { ok: false, message: describeAddFailure(result) };
       }
 
-      // Visual evidence is captured right after the note exists; a capture failure is
-      // recorded on the comment, so the note itself always survives.
+      // Visual and framework evidence are captured right after the note exists; a capture
+      // failure is recorded on the comment, so the note itself always survives.
       await container.captureCommentEvidence({
         sessionId: request.sessionId,
         commentId: result.comment.id,
@@ -71,6 +71,8 @@ export async function handleReviewRequest(
             ? null
             : {
                 tabId: sender.tabId,
+                frameId: sender.frameId,
+                fingerprint: request.anchor.fingerprint,
                 rect: request.anchor.boundingBox,
                 viewport: request.viewport,
               },

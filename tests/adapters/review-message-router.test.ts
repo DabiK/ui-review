@@ -20,7 +20,7 @@ import {
 import type { ReviewRequestSender } from '../../src/adapters/chrome/review-messaging';
 
 const PAGE_URL = 'https://example.com/pricing';
-const SENDER: ReviewRequestSender = { url: PAGE_URL, tabId: 7 };
+const SENDER: ReviewRequestSender = { url: PAGE_URL, tabId: 7, frameId: 0 };
 const EMPTY_OVERLAY: OverlayState = { active: false, sessionId: null, comments: [] };
 
 const createdComment = createReviewComment({
@@ -143,6 +143,8 @@ describe('handleReviewRequest', () => {
       commentId: 'comment-1',
       capture: {
         tabId: 7,
+        frameId: 0,
+        fingerprint: 'main > button',
         rect: { x: 10, y: 20, width: 100, height: 32 },
         viewport: { width: 1440, height: 900 },
       },
@@ -161,6 +163,7 @@ describe('handleReviewRequest', () => {
     const response = await handleReviewRequest(container, commentCreate(), {
       url: 'https://other.example.com/',
       tabId: 9,
+      frameId: 0,
     });
 
     expect(addReviewComment).not.toHaveBeenCalled();
@@ -176,7 +179,11 @@ describe('handleReviewRequest', () => {
     );
     const container = makeContainer({ captureCommentEvidence });
 
-    await handleReviewRequest(container, commentCreate(), { url: PAGE_URL, tabId: null });
+    await handleReviewRequest(container, commentCreate(), {
+      url: PAGE_URL,
+      tabId: null,
+      frameId: null,
+    });
 
     expect(captureCommentEvidence).toHaveBeenCalledWith({
       sessionId: 'session-1',
