@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppContainer } from '@app';
-import type { SessionSummary } from '@core';
+import type { CommentSummary, SessionSummary } from '@core';
 
 const harness = vi.hoisted(() => {
   const session: SessionSummary = {
@@ -15,8 +15,41 @@ const harness = vi.hoisted(() => {
     commentCount: 2,
   };
 
+  const comment: CommentSummary = {
+    id: 'comment-1',
+    text: 'The save action is not aligned with the title.',
+    category: 'UI',
+    priority: 'important',
+    createdAt: '2026-09-18T10:05:00.000Z',
+    updatedAt: '2026-09-18T10:05:00.000Z',
+    anchorLabel: 'Save',
+    attachments: [
+      {
+        id: 'attachment-crop',
+        kind: 'element-crop',
+        mimeType: 'image/png',
+        width: 100,
+        height: 32,
+        byteLength: 512,
+        dataUrl:
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      },
+    ],
+    visualEvidence: {
+      confidence: 'inferred',
+      viewport: 'failed',
+      elementCrop: 'captured',
+      reason: 'The visible page could not be captured.',
+    },
+  };
+
   const clearedSessions: string[] = [];
   const syncedPages: string[] = [];
+  const deletedAttachments: {
+    sessionId: string;
+    commentId: string;
+    attachmentId: string;
+  }[] = [];
   let cleared = false;
 
   const container: AppContainer = {
@@ -32,7 +65,7 @@ const harness = vi.hoisted(() => {
       activePage: { url: session.pageUrl, title: 'App', hostname: session.hostname, eligible: true },
       currentSession: cleared ? null : session,
       selectedSession: cleared ? null : session,
-      comments: [],
+      comments: cleared ? [] : [comment],
       sessions: cleared ? [] : [session],
     }),
     startReviewSession: async () => ({ ok: false, reason: 'no-active-page' }),
@@ -57,6 +90,11 @@ const harness = vi.hoisted(() => {
       reason: 'session-not-found',
       sessionId: 'session-1',
     }),
+    captureCommentEvidence: async () => ({
+      ok: false,
+      reason: 'comment-not-found',
+      commentId: 'comment-1',
+    }),
     updateReviewComment: async () => ({
       ok: false,
       reason: 'session-not-found',
@@ -67,6 +105,14 @@ const harness = vi.hoisted(() => {
       reason: 'session-not-found',
       sessionId: 'session-1',
     }),
+    deleteReviewCommentAttachment: async (input) => {
+      deletedAttachments.push(input);
+      return {
+        ok: false,
+        reason: 'attachment-not-found',
+        attachmentId: input.attachmentId,
+      };
+    },
     notifyPanelChanged: () => undefined,
     syncPageOverlay: (pageUrl) => {
       syncedPages.push(pageUrl);
@@ -74,7 +120,12 @@ const harness = vi.hoisted(() => {
     subscribeToReviewChanges: () => () => undefined,
   };
 
-  return { container, clearedSessions, syncedPages };
+  return { container, comment, clearedSessions, syncedPages, deletedAttachments, reset: () => {
+    cleared = false;
+    clearedSessions.length = 0;
+    syncedPages.length = 0;
+    deletedAttachments.length = 0;
+  } };
 });
 
 vi.mock('@app', () => ({ createAppContainer: () => harness.container }));
@@ -89,14 +140,14 @@ function findButton(label: string): HTMLButtonElement {
   return button;
 }
 
-describe('side panel session lifecycle', () => {
-  afterEach(() => {
-    document.body.innerHTML = '';
+describe('side panel review actions', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    harness.reset();
+    document.body.innerHTML = '<div id="app"></div>';
   });
 
   it('unmounts the page overlay of an active session after a confirmed clear', async () => {
-    document.body.innerHTML = '<div id="app"></div>';
-
     await import('../../src/sidepanel/main');
     await vi.waitFor(() => {
       expect(document.querySelector('#session-name-input')).not.toBeNull();
@@ -108,6 +159,27 @@ describe('side panel session lifecycle', () => {
     await vi.waitFor(() => {
       expect(harness.clearedSessions).toEqual(['session-1']);
       expect(harness.syncedPages).toEqual(['https://app.example.com/#/route']);
+    });
+  });
+
+  it('deletes one screenshot attachment through the panel confirmation', async () => {
+    await import('../../src/sidepanel/main');
+    await vi.waitFor(() => {
+      expect(document.querySelector('.figure')).not.toBeNull();
+    });
+
+    expect(document.body.textContent).toContain('Fig. 2 · Element crop');
+    expect(document.body.textContent).toContain(
+      'Viewport screenshot unavailable — The visible page could not be captured.',
+    );
+
+    findButton('Remove element crop').click();
+    findButton('Delete screenshot permanently').click();
+
+    await vi.waitFor(() => {
+      expect(harness.deletedAttachments).toEqual([
+        { sessionId: 'session-1', commentId: 'comment-1', attachmentId: 'attachment-crop' },
+      ]);
     });
   });
 });

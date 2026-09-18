@@ -2,8 +2,9 @@ import type { Rect, Viewport } from '@core';
 
 /**
  * Everything the content script captures about one page element so a comment can be
- * anchored and re-resolved later. Attribute redaction and computed styles are issue #4;
- * they are exposed here as empty records so callers already have the final shape.
+ * anchored and re-resolved later. Only allowlisted structural attributes and computed
+ * styles are read: form values are never touched, and the core applies a final redaction
+ * gate before anything is persisted.
  */
 export interface DomAnchorData {
   readonly fingerprint: string;
@@ -21,6 +22,63 @@ const MAX_FINGERPRINT_DEPTH = 6;
 const MAX_ANCESTRY_ENTRIES = 6;
 const MAX_TEXT_LENGTH = 160;
 const MAX_CLASSES_PER_ANCESTOR = 2;
+const MAX_ATTRIBUTE_VALUE_LENGTH = 300;
+const MAX_STYLE_VALUE_LENGTH = 200;
+
+/**
+ * Curated structural, accessibility and test attributes. The allowlist keeps evidence
+ * useful without ever reading `value`, `checked` or secret-like attributes.
+ */
+const CAPTURED_ATTRIBUTES: readonly string[] = [
+  'id',
+  'class',
+  'name',
+  'type',
+  'role',
+  'for',
+  'href',
+  'src',
+  'alt',
+  'title',
+  'placeholder',
+  'aria-label',
+  'aria-labelledby',
+  'aria-describedby',
+  'aria-expanded',
+  'aria-controls',
+  'aria-haspopup',
+  'data-testid',
+  'data-test',
+  'data-test-id',
+  'data-cy',
+];
+
+/** Computed styles that explain a UI review remark (layout, typography, surface, state). */
+const CAPTURED_STYLES: readonly string[] = [
+  'display',
+  'position',
+  'visibility',
+  'opacity',
+  'z-index',
+  'overflow',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'text-align',
+  'color',
+  'background-color',
+  'border-top-width',
+  'border-radius',
+  'margin',
+  'padding',
+  'width',
+  'height',
+];
+
+/** Elements whose text content is a default form value and must never be captured. */
+const VALUE_CARRIER_TAGS: ReadonlySet<string> = new Set(['input', 'textarea', 'select']);
 
 const IMPLICIT_ROLE_BY_TAG: Readonly<Record<string, string>> = {
   button: 'button',
@@ -161,8 +219,46 @@ function captureAncestry(element: Element): string[] {
 }
 
 function captureText(element: Element): string {
-  const collapsed = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const tag = element.tagName.toLowerCase();
+  if (VALUE_CARRIER_TAGS.has(tag)) {
+    return '';
+  }
+
+  const rendered = element instanceof HTMLElement ? element.innerText : '';
+  const raw =
+    typeof rendered === 'string' && rendered.trim() !== ''
+      ? rendered
+      : (element.textContent ?? '');
+  const collapsed = raw.replace(/\s+/g, ' ').trim();
   return collapsed.slice(0, MAX_TEXT_LENGTH);
+}
+
+function captureAttributes(element: Element): Record<string, string> {
+  const captured: Record<string, string> = {};
+  for (const name of CAPTURED_ATTRIBUTES) {
+    const value = element.getAttribute(name);
+    if (value === null || value === '') {
+      continue;
+    }
+    captured[name] = value.slice(0, MAX_ATTRIBUTE_VALUE_LENGTH);
+  }
+  return captured;
+}
+
+function captureComputedStyles(element: Element): Record<string, string> {
+  const captured: Record<string, string> = {};
+  try {
+    const styles = window.getComputedStyle(element);
+    for (const property of CAPTURED_STYLES) {
+      const value = styles.getPropertyValue(property).trim();
+      if (value !== '') {
+        captured[property] = value.slice(0, MAX_STYLE_VALUE_LENGTH);
+      }
+    }
+  } catch {
+    // A style read must never block the annotation.
+  }
+  return captured;
 }
 
 function implicitRole(element: Element): string | null {
@@ -231,9 +327,9 @@ export function captureDomAnchor(element: Element): DomAnchorData {
     text: captureText(element),
     role: captureRole(element),
     accessibleName: captureAccessibleName(element),
-    attributes: {},
+    attributes: captureAttributes(element),
     boundingBox: captureBoundingBox(element),
     viewport: { width: window.innerWidth, height: window.innerHeight },
-    computedStyles: {},
+    computedStyles: captureComputedStyles(element),
   };
 }

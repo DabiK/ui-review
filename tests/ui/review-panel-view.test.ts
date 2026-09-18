@@ -36,8 +36,36 @@ function makeComment(overrides: Partial<CommentSummary> = {}): CommentSummary {
     createdAt: '2026-09-18T10:05:00.000Z',
     updatedAt: '2026-09-18T10:05:00.000Z',
     anchorLabel: 'Save',
+    attachments: [],
+    visualEvidence: null,
     ...overrides,
   };
+}
+
+const TINY_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+function makeAttachments(): CommentSummary['attachments'] {
+  return [
+    {
+      id: 'attachment-viewport',
+      kind: 'viewport-screenshot',
+      mimeType: 'image/png',
+      width: 1440,
+      height: 900,
+      byteLength: 4096,
+      dataUrl: TINY_PNG,
+    },
+    {
+      id: 'attachment-crop',
+      kind: 'element-crop',
+      mimeType: 'image/png',
+      width: 100,
+      height: 32,
+      byteLength: 512,
+      dataUrl: TINY_PNG,
+    },
+  ];
 }
 
 function makePanel(overrides: Partial<ReviewPanelState> = {}): ReviewPanelState {
@@ -372,6 +400,121 @@ describe('renderReviewPanel', () => {
     expect(onCancelDeleteComment).toHaveBeenCalledTimes(1);
     findButton(root, 'Delete note permanently').click();
     expect(onConfirmDeleteComment).toHaveBeenCalledWith('comment-1');
+  });
+
+  it('renders screenshot plates with captions and per-attachment removal', () => {
+    const root = document.createElement('div');
+    const onRequestDeleteAttachment = vi.fn();
+    const session = makeSession();
+    const comment = makeComment({ attachments: makeAttachments() });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+      { onRequestDeleteAttachment },
+    );
+
+    const figures = [...root.querySelectorAll('.figure')];
+    expect(figures).toHaveLength(2);
+    expect(figures[0]?.querySelector('.figure__caption')?.textContent).toBe('Fig. 1 · Viewport');
+    expect(figures[1]?.querySelector('.figure__caption')?.textContent).toBe(
+      'Fig. 2 · Element crop',
+    );
+    expect(figures[0]?.querySelector('img')?.getAttribute('src')).toBe(TINY_PNG);
+    expect(figures[0]?.querySelector('img')?.getAttribute('alt')).toBe(
+      'Viewport screenshot for note 01',
+    );
+
+    findButton(root, 'Remove viewport screenshot').click();
+    expect(onRequestDeleteAttachment).toHaveBeenCalledWith('attachment-viewport');
+  });
+
+  it('requires confirmation before deleting a screenshot', () => {
+    const root = document.createElement('div');
+    const onConfirmDeleteAttachment = vi.fn();
+    const onCancelDeleteAttachment = vi.fn();
+    const session = makeSession();
+    const comment = makeComment({ attachments: makeAttachments() });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+      {
+        pendingDeleteAttachmentId: 'attachment-crop',
+        onConfirmDeleteAttachment,
+        onCancelDeleteAttachment,
+      },
+    );
+
+    expect(root.textContent).toContain(
+      'Delete the element crop? This cannot be undone.',
+    );
+    expect(root.querySelector('[data-autofocus]')).toBe(
+      findButton(root, 'Delete screenshot permanently'),
+    );
+
+    findButton(root, 'Keep screenshot').click();
+    expect(onCancelDeleteAttachment).toHaveBeenCalledTimes(1);
+
+    findButton(root, 'Delete screenshot permanently').click();
+    expect(onConfirmDeleteAttachment).toHaveBeenCalledWith('comment-1', 'attachment-crop');
+  });
+
+  it('surfaces screenshot capture failures explicitly', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const partial = makeComment({
+      visualEvidence: {
+        confidence: 'inferred',
+        viewport: 'captured',
+        elementCrop: 'failed',
+        reason: 'The pinned element is outside the visible area.',
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [partial] }),
+    );
+
+    expect(root.textContent).toContain(
+      'Element crop unavailable — The pinned element is outside the visible area.',
+    );
+
+    const failed = makeComment({
+      visualEvidence: {
+        confidence: 'unavailable',
+        viewport: 'failed',
+        elementCrop: 'failed',
+        reason: 'The visible page could not be captured.',
+      },
+    });
+    renderReviewPanel(root, makePanel({ selectedSession: session, sessions: [session], comments: [failed] }));
+
+    expect(root.textContent).toContain(
+      'Screenshots unavailable — The visible page could not be captured.',
+    );
+  });
+
+  it('shows no capture status when both screenshots were captured', () => {
+    const root = document.createElement('div');
+    const session = makeSession();
+    const comment = makeComment({
+      attachments: makeAttachments(),
+      visualEvidence: {
+        confidence: 'confirmed',
+        viewport: 'captured',
+        elementCrop: 'captured',
+        reason: null,
+      },
+    });
+
+    renderReviewPanel(
+      root,
+      makePanel({ selectedSession: session, sessions: [session], comments: [comment] }),
+    );
+
+    expect(root.querySelector('.comment__capture-status')).toBeNull();
   });
 
   it('surfaces an explicit notice instead of failing silently', () => {

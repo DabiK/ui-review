@@ -191,6 +191,38 @@ describe('mountReviewOverlay', () => {
     expect(textarea.value).toBe('');
   });
 
+  it('hides the overlay chrome while the screenshot capture runs', async () => {
+    const { overlay, root, onCreateComment } = mountOverlay();
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    clickPageElement(button);
+
+    let resolveSave: (result: OverlaySaveResult) => void = () => undefined;
+    onCreateComment.mockImplementation(
+      () =>
+        new Promise<OverlaySaveResult>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    const textarea = requireElement(root.querySelector('textarea'), 'textarea');
+    textarea.value = 'Keep the page clean';
+    requireElement(root.querySelector<HTMLButtonElement>('[data-ui-review="save"]'), 'save').click();
+
+    await vi.waitFor(() => {
+      expect(onCreateComment).toHaveBeenCalledTimes(1);
+    });
+    await vi.waitFor(() => {
+      expect(overlay.host.style.visibility).toBe('hidden');
+    });
+
+    resolveSave({ ok: true });
+
+    await vi.waitFor(() => {
+      expect(overlay.host.style.visibility).toBe('');
+    });
+  });
+
   it('submits with Ctrl+Enter', async () => {
     const { root, onCreateComment } = mountOverlay();
     const button = document.createElement('button');

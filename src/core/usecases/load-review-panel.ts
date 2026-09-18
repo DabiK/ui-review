@@ -1,4 +1,11 @@
-import type { CommentId, SessionId } from '../model/ids';
+import type {
+  Attachment,
+  AttachmentKind,
+  Confidence,
+  VisualCaptureStatus,
+  VisualEvidence,
+} from '../model/evidence';
+import type { AttachmentId, CommentId, SessionId } from '../model/ids';
 import type { CommentCategory, CommentPriority, ReviewComment } from '../model/review-comment';
 import {
   findCurrentSessionForPage,
@@ -29,6 +36,24 @@ export interface SessionSummary {
   readonly commentCount: number;
 }
 
+export interface AttachmentSummary {
+  readonly id: AttachmentId;
+  readonly kind: AttachmentKind;
+  readonly mimeType: string;
+  readonly width: number;
+  readonly height: number;
+  readonly byteLength: number;
+  /** Inline data URL for previews; `null` when the bytes live in a local artifact. */
+  readonly dataUrl: string | null;
+}
+
+export interface VisualEvidenceSummary {
+  readonly confidence: Confidence;
+  readonly viewport: VisualCaptureStatus;
+  readonly elementCrop: VisualCaptureStatus;
+  readonly reason: string | null;
+}
+
 export interface CommentSummary {
   readonly id: CommentId;
   readonly text: string;
@@ -38,6 +63,10 @@ export interface CommentSummary {
   readonly updatedAt: string;
   /** Short human label of the pinned element, when the comment carries a DOM anchor. */
   readonly anchorLabel: string | null;
+  /** Screenshot previews, in capture order (viewport then element crop). */
+  readonly attachments: readonly AttachmentSummary[];
+  /** Explicit capture outcome, when a visual capture was attempted for this comment. */
+  readonly visualEvidence: VisualEvidenceSummary | null;
 }
 
 export interface ReviewPanelState {
@@ -151,7 +180,37 @@ function toCommentSummary(comment: ReviewComment): CommentSummary {
     createdAt: comment.createdAt,
     updatedAt: comment.updatedAt,
     anchorLabel: anchorLabel(comment),
+    attachments: comment.attachments.map(toAttachmentSummary),
+    visualEvidence: visualEvidence(comment),
   };
+}
+
+function toAttachmentSummary(attachment: Attachment): AttachmentSummary {
+  return {
+    id: attachment.id,
+    kind: attachment.kind,
+    mimeType: attachment.mimeType,
+    width: attachment.width,
+    height: attachment.height,
+    byteLength: attachment.byteLength,
+    dataUrl: attachment.storage.type === 'inline-data-url' ? attachment.storage.dataUrl : null,
+  };
+}
+
+function visualEvidence(comment: ReviewComment): VisualEvidenceSummary | null {
+  for (const evidence of comment.evidence) {
+    const payload: VisualEvidence | null =
+      evidence.payload.type === 'visual' ? evidence.payload : null;
+    if (payload !== null) {
+      return {
+        confidence: evidence.confidence,
+        viewport: payload.viewport,
+        elementCrop: payload.elementCrop,
+        reason: payload.reason,
+      };
+    }
+  }
+  return null;
 }
 
 function anchorLabel(comment: ReviewComment): string | null {

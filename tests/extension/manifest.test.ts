@@ -7,6 +7,7 @@ interface ManifestShape {
   readonly name: string;
   readonly version: string;
   readonly permissions: readonly string[];
+  readonly host_permissions: readonly string[];
   readonly background: { readonly service_worker: string; readonly type: string };
   readonly content_scripts: readonly {
     readonly matches: readonly string[];
@@ -44,6 +45,12 @@ describe('extension manifest', () => {
     expect(readRepoFile(manifest.side_panel.default_path)).toContain('id="app"');
     expect(readRepoFile('src/background/service-worker.ts').length).toBeGreaterThan(0);
     expect(readRepoFile('src/content/index.ts').length).toBeGreaterThan(0);
+  });
+
+  it('declares the host permissions required to capture the reviewed page', () => {
+    // `chrome.tabs.captureVisibleTab` accepts only `<all_urls>` or `activeTab`, and an
+    // activeTab grant is lost on page reload while a review session survives it.
+    expect(manifest.host_permissions).toEqual(['<all_urls>']);
   });
 
   it('injects the overlay content script on http(s) pages only', () => {

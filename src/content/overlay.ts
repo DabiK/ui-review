@@ -408,6 +408,22 @@ export function mountReviewOverlay(options: ReviewOverlayOptions): ReviewOverlay
   let frameId: number | null = null;
   let unmounted = false;
 
+  function setChromeHidden(hidden: boolean): void {
+    host.style.visibility = hidden ? 'hidden' : '';
+  }
+
+  /** Resolves after the browser had a chance to paint; falls through when rAF is absent. */
+  function nextPaint(): Promise<void> {
+    if (typeof win.requestAnimationFrame !== 'function') {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      win.requestAnimationFrame(() => {
+        win.requestAnimationFrame(() => resolve());
+      });
+    });
+  }
+
   function createSelect(entries: readonly SelectOption[], selected: string): HTMLSelectElement {
     const select = doc.createElement('select');
     select.className = 'ui-review-select';
@@ -584,16 +600,25 @@ export function mountReviewOverlay(options: ReviewOverlayOptions): ReviewOverlay
     saveButton.disabled = true;
     saveButton.textContent = 'Saving…';
 
+    const draft: OverlayDraft = {
+      text,
+      category: readCategory(),
+      priority: readPriority(),
+      anchor: captureDomAnchor(target),
+    };
+
+    // The screenshots must show the page, not the review chrome: hide the overlay and let
+    // the browser paint once before the capture runs on the extension side.
+    setChromeHidden(true);
+    await nextPaint();
+
     let result: OverlaySaveResult;
     try {
-      result = await options.onCreateComment({
-        text,
-        category: readCategory(),
-        priority: readPriority(),
-        anchor: captureDomAnchor(target),
-      });
+      result = await options.onCreateComment(draft);
     } catch {
       result = { ok: false, message: 'The note could not be saved.' };
+    } finally {
+      setChromeHidden(false);
     }
 
     if (composerTarget !== target) {

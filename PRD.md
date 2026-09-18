@@ -118,7 +118,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Exercise the complete interaction on a plain HTML fixture and a client-rendered fixture; reject visual regressions and event-leakage.
   >
 
-- [ ] #4 — Capture useful evidence while protecting sensitive data (labels: area:privacy, area:extension, blocked)
+- [x] #4 — Capture useful evidence while protecting sensitive data (labels: area:privacy, area:extension, blocked)
 
   **Issue #4 — détail complet**
   > # 04 — Capture useful evidence while protecting sensitive data

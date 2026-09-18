@@ -83,15 +83,23 @@ describe('resolveAnchor', () => {
 });
 
 describe('captureDomAnchor', () => {
-  it('collapses whitespace, truncates text and never reads input values', () => {
-    document.body.innerHTML =
-      '<p id="copy">  Hello    world  </p><input id="secret" value="secret" aria-label="Secret">';
+  it('collapses whitespace, truncates text and never reads form values', () => {
+    document.body.innerHTML = [
+      '<p id="copy">  Hello    world  </p>',
+      '<input id="secret" value="secret" aria-label="Secret">',
+      '<textarea id="message">hunter2</textarea>',
+      '<select id="plan"><option value="pro">Pro plan</option></select>',
+    ].join('');
     const paragraph = requireElement(document.getElementById('copy'), 'paragraph');
     const input = requireElement(document.getElementById('secret'), 'input');
+    const textarea = requireElement(document.getElementById('message'), 'textarea');
+    const select = requireElement(document.getElementById('plan'), 'select');
 
     expect(captureDomAnchor(paragraph).text).toBe('Hello world');
     expect(captureDomAnchor(input).text).toBe('');
     expect(captureDomAnchor(input).text).not.toContain('secret');
+    expect(captureDomAnchor(textarea).text).toBe('');
+    expect(captureDomAnchor(select).text).toBe('');
 
     const long = document.createElement('p');
     long.textContent = 'x'.repeat(200);
@@ -157,13 +165,46 @@ describe('captureDomAnchor', () => {
     expect(anchor.fingerprint).toBe('#copy');
   });
 
-  it('keeps placeholder records empty until issue #4 fills them', () => {
+  it('captures allowlisted attributes and never raw form values', () => {
+    document.body.innerHTML = [
+      '<input id="secret" type="password" name="password" value="hunter2"',
+      ' data-token="tok_live_123" data-testid="password-field" aria-label="Password">',
+      '<button id="save" class="primary wide" data-cy="save" style="display: inline-flex">Save</button>',
+    ].join('');
+    const input = requireElement(document.getElementById('secret'), 'password input');
+    const button = requireElement(document.getElementById('save'), 'button');
+
+    const inputAnchor = captureDomAnchor(input);
+    expect(inputAnchor.attributes).toEqual({
+      id: 'secret',
+      type: 'password',
+      name: 'password',
+      'data-testid': 'password-field',
+      'aria-label': 'Password',
+    });
+    expect(inputAnchor.attributes).not.toHaveProperty('value');
+    expect(inputAnchor.attributes).not.toHaveProperty('data-token');
+    expect(JSON.stringify(inputAnchor)).not.toContain('hunter2');
+    expect(JSON.stringify(inputAnchor)).not.toContain('tok_live_123');
+
+    const buttonAnchor = captureDomAnchor(button);
+    expect(buttonAnchor.attributes).toMatchObject({
+      id: 'save',
+      class: 'primary wide',
+      'data-cy': 'save',
+    });
+    expect(buttonAnchor.attributes['style']).toBeUndefined();
+  });
+
+  it('captures useful computed styles', () => {
     const element = document.createElement('div');
+    element.style.display = 'flex';
+    element.style.color = 'rgb(31, 29, 26)';
     document.body.appendChild(element);
 
     const anchor = captureDomAnchor(element);
 
-    expect(anchor.attributes).toEqual({});
-    expect(anchor.computedStyles).toEqual({});
+    expect(anchor.computedStyles['display']).toBe('flex');
+    expect(anchor.computedStyles['color']).toBe('rgb(31, 29, 26)');
   });
 });

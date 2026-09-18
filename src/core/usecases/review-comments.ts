@@ -1,6 +1,6 @@
 import { createDomEvidence, type DomAnchor, type Viewport } from '../model/evidence';
 import { DomainValidationError } from '../model/errors';
-import type { CommentId, SessionId } from '../model/ids';
+import type { AttachmentId, CommentId, SessionId } from '../model/ids';
 import {
   assertCommentCategory,
   assertCommentPriority,
@@ -170,6 +170,61 @@ export async function updateReviewComment(
   });
 
   return { ok: true, comment: revised };
+}
+
+export interface DeleteReviewCommentAttachmentDeps {
+  readonly sessions: ReviewSessionRepository;
+}
+
+export interface DeleteReviewCommentAttachmentInput {
+  readonly sessionId: SessionId;
+  readonly commentId: CommentId;
+  readonly attachmentId: AttachmentId;
+}
+
+export type DeleteReviewCommentAttachmentResult =
+  | { readonly ok: true; readonly comment: ReviewComment }
+  | { readonly ok: false; readonly reason: 'session-not-found'; readonly sessionId: SessionId }
+  | { readonly ok: false; readonly reason: 'comment-not-found'; readonly commentId: CommentId }
+  | {
+      readonly ok: false;
+      readonly reason: 'attachment-not-found';
+      readonly attachmentId: AttachmentId;
+    };
+
+/** Removes exactly one screenshot attachment, leaving the rest of the comment untouched. */
+export async function deleteReviewCommentAttachment(
+  deps: DeleteReviewCommentAttachmentDeps,
+  input: DeleteReviewCommentAttachmentInput,
+): Promise<DeleteReviewCommentAttachmentResult> {
+  const session = await deps.sessions.findById(input.sessionId);
+  if (session === null) {
+    return { ok: false, reason: 'session-not-found', sessionId: input.sessionId };
+  }
+
+  const comment = session.comments.find((candidate) => candidate.id === input.commentId);
+  if (comment === undefined) {
+    return { ok: false, reason: 'comment-not-found', commentId: input.commentId };
+  }
+  if (!comment.attachments.some((attachment) => attachment.id === input.attachmentId)) {
+    return { ok: false, reason: 'attachment-not-found', attachmentId: input.attachmentId };
+  }
+
+  const updated: ReviewComment = {
+    ...comment,
+    attachments: comment.attachments.filter(
+      (attachment) => attachment.id !== input.attachmentId,
+    ),
+  };
+
+  await deps.sessions.save({
+    ...session,
+    comments: session.comments.map((candidate) =>
+      candidate.id === comment.id ? updated : candidate,
+    ),
+  });
+
+  return { ok: true, comment: updated };
 }
 
 export interface DeleteReviewCommentDeps {

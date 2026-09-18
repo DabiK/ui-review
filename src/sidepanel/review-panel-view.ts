@@ -1,10 +1,13 @@
 import { COMMENT_CATEGORIES, COMMENT_PRIORITIES } from '@core';
 import type {
+  AttachmentKind,
+  AttachmentSummary,
   CommentCategory,
   CommentPriority,
   CommentSummary,
   ReviewPanelState,
   SessionSummary,
+  VisualEvidenceSummary,
 } from '@core';
 
 export interface SaveCommentInput {
@@ -18,6 +21,7 @@ export interface ReviewPanelViewOptions {
   readonly pendingClearSessionId?: string | null;
   readonly editingCommentId?: string | null;
   readonly pendingDeleteCommentId?: string | null;
+  readonly pendingDeleteAttachmentId?: string | null;
   readonly notice?: string | null;
   readonly onRefresh?: () => void;
   readonly onStartReview?: () => void;
@@ -33,6 +37,9 @@ export interface ReviewPanelViewOptions {
   readonly onRequestDeleteComment?: (commentId: string) => void;
   readonly onConfirmDeleteComment?: (commentId: string) => void;
   readonly onCancelDeleteComment?: () => void;
+  readonly onRequestDeleteAttachment?: (attachmentId: string) => void;
+  readonly onConfirmDeleteAttachment?: (commentId: string, attachmentId: string) => void;
+  readonly onCancelDeleteAttachment?: () => void;
 }
 
 const PRIORITY_BADGES: Readonly<Record<CommentPriority, string>> = {
@@ -45,6 +52,22 @@ const PRIORITY_LABELS: Readonly<Record<CommentPriority, string>> = {
   critical: 'Critical',
   important: 'Important',
   minor: 'Minor',
+};
+
+/** Plate legends from the design direction: « Fig. 1 · Viewport », « Fig. 2 · Element crop ». */
+const ATTACHMENT_CAPTIONS: Readonly<Record<AttachmentKind, string>> = {
+  'viewport-screenshot': 'Fig. 1 · Viewport',
+  'element-crop': 'Fig. 2 · Element crop',
+};
+
+const ATTACHMENT_LABELS: Readonly<Record<AttachmentKind, string>> = {
+  'viewport-screenshot': 'viewport screenshot',
+  'element-crop': 'element crop',
+};
+
+const ATTACHMENT_ALT: Readonly<Record<AttachmentKind, string>> = {
+  'viewport-screenshot': 'Viewport screenshot',
+  'element-crop': 'Element crop',
 };
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -404,6 +427,92 @@ function renderCommentDeleteConfirmation(
   return confirm;
 }
 
+function renderAttachmentDeleteConfirmation(
+  comment: CommentSummary,
+  attachment: AttachmentSummary,
+  options: ReviewPanelViewOptions,
+): HTMLElement {
+  const confirm = element('div', 'confirm confirm--inline');
+  confirm.setAttribute('aria-label', 'Confirm screenshot deletion');
+  confirm.append(
+    element(
+      'p',
+      'confirm__question',
+      `Delete the ${ATTACHMENT_LABELS[attachment.kind]}? This cannot be undone.`,
+    ),
+  );
+
+  const actions = element('div', 'actions');
+  const deleteButton = button('Delete screenshot permanently', 'action action--danger', () =>
+    options.onConfirmDeleteAttachment?.(comment.id, attachment.id),
+  );
+  deleteButton.setAttribute('data-autofocus', 'true');
+  actions.append(
+    deleteButton,
+    button('Keep screenshot', 'action action--ghost', options.onCancelDeleteAttachment),
+  );
+  confirm.append(actions);
+  return confirm;
+}
+
+function renderAttachmentFigure(
+  comment: CommentSummary,
+  attachment: AttachmentSummary,
+  notePosition: number,
+  options: ReviewPanelViewOptions,
+): HTMLElement {
+  const figure = element('figure', 'figure');
+  figure.dataset['attachmentId'] = attachment.id;
+  figure.dataset['attachmentKind'] = attachment.kind;
+
+  if (attachment.dataUrl !== null) {
+    const image = document.createElement('img');
+    image.className = 'figure__image';
+    image.src = attachment.dataUrl;
+    image.alt = `${ATTACHMENT_ALT[attachment.kind]} for note ${String(notePosition).padStart(2, '0')}`;
+    image.loading = 'lazy';
+    figure.append(image);
+  } else {
+    figure.append(
+      element('p', 'figure__artifact', 'Artifact stored outside the browser profile.'),
+    );
+  }
+
+  figure.append(element('figcaption', 'figure__caption', ATTACHMENT_CAPTIONS[attachment.kind]));
+
+  if (options.pendingDeleteAttachmentId === attachment.id) {
+    figure.append(renderAttachmentDeleteConfirmation(comment, attachment, options));
+  } else {
+    const actions = element('div', 'figure__actions');
+    actions.append(
+      button(`Remove ${ATTACHMENT_LABELS[attachment.kind]}`, 'action action--ghost', () =>
+        options.onRequestDeleteAttachment?.(attachment.id),
+      ),
+    );
+    figure.append(actions);
+  }
+
+  return figure;
+}
+
+/** Honest capture status; `null` means both screenshots exist. */
+function captureStatusMessage(visual: VisualEvidenceSummary): string | null {
+  const reason = visual.reason ?? 'The screenshot could not be captured.';
+  const viewportFailed = visual.viewport === 'failed';
+  const cropFailed = visual.elementCrop === 'failed';
+
+  if (viewportFailed && cropFailed) {
+    return `Screenshots unavailable — ${reason}`;
+  }
+  if (viewportFailed) {
+    return `Viewport screenshot unavailable — ${reason}`;
+  }
+  if (cropFailed) {
+    return `Element crop unavailable — ${reason}`;
+  }
+  return null;
+}
+
 function renderCommentRow(
   comment: CommentSummary,
   position: number,
@@ -431,6 +540,21 @@ function renderCommentRow(
   if (comment.anchorLabel !== null) {
     body.append(element('p', 'comment__anchor', `Pinned to ${comment.anchorLabel}`));
   }
+
+  if (comment.attachments.length > 0) {
+    const figures = element('div', 'comment__figures');
+    for (const attachment of comment.attachments) {
+      figures.append(renderAttachmentFigure(comment, attachment, position, options));
+    }
+    body.append(figures);
+  }
+
+  const captureStatus =
+    comment.visualEvidence === null ? null : captureStatusMessage(comment.visualEvidence);
+  if (captureStatus !== null) {
+    body.append(element('p', 'comment__capture-status', captureStatus));
+  }
+
   body.append(
     element(
       'p',

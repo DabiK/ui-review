@@ -1,16 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
   addReviewComment,
+  captureCommentEvidence,
   createReviewSession,
   loadOverlayState,
   loadReviewPanel,
   stopReviewSession,
   type AddReviewCommentInput,
+  type CaptureCommentEvidenceInput,
+  type CaptureCommentEvidenceResult,
   type OverlayState,
   type SessionId,
   type StopReviewSessionResult,
 } from '@core';
 import { InMemoryReviewChangeBus } from '@adapters/runtime/in-memory-review-change-bus';
+import {
+  FakeScreenshotCaptureAdapter,
+  TINY_PNG_BYTE_LENGTH,
+  TINY_PNG_DATA_URL,
+  createTinyCapturedImage,
+} from '@adapters/runtime/fake-screenshot-capture';
 import { FixedClockAdapter } from '@adapters/runtime/fixed-clock';
 import { SequentialIdGeneratorAdapter } from '@adapters/runtime/sequential-id-generator';
 import { StaticActivePageAdapter } from '@adapters/runtime/static-active-page';
@@ -24,21 +33,26 @@ import {
   REVIEW_MESSAGES,
   type CommentCreateRequest,
 } from '../../src/adapters/chrome/review-messages';
+import type { ReviewRequestSender } from '../../src/adapters/chrome/review-messaging';
 
 const PAGE_URL = 'https://example.com/pricing';
 const VIEWPORT = { width: 1440, height: 900 };
+const SENDER: ReviewRequestSender = { url: PAGE_URL, tabId: 7 };
 
 function makeContainer(
   repository: InMemoryReviewSessionRepository,
   clock: FixedClockAdapter,
   ids: SequentialIdGeneratorAdapter,
   bus: InMemoryReviewChangeBus,
+  screenshots: FakeScreenshotCaptureAdapter,
 ): ReviewMessageContainer {
   return {
     loadOverlayState: (pageUrl: string): Promise<OverlayState> =>
       loadOverlayState({ sessions: repository }, { pageUrl }),
     addReviewComment: (input: AddReviewCommentInput) =>
       addReviewComment({ sessions: repository, clock, ids }, input),
+    captureCommentEvidence: (input: CaptureCommentEvidenceInput): Promise<CaptureCommentEvidenceResult> =>
+      captureCommentEvidence({ sessions: repository, screenshots, clock, ids }, input),
     stopReviewSession: (sessionId: SessionId): Promise<StopReviewSessionResult> =>
       stopReviewSession({ sessions: repository, clock }, { sessionId }),
     syncPageOverlay: (pageUrl: string) => {
@@ -74,11 +88,18 @@ function commentCreateRequest(): CommentCreateRequest {
 }
 
 describe('overlay comment round-trip', () => {
-  it('persists a comment created from the page and exposes it to both views after a reload', async () => {
+  it('persists a comment with its screenshots and exposes both after a reload', async () => {
     const repository = new InMemoryReviewSessionRepository();
     const clock = new FixedClockAdapter('2026-09-18T10:05:00.000Z');
     const ids = new SequentialIdGeneratorAdapter('comment');
     const bus = new InMemoryReviewChangeBus();
+    const screenshots = new FakeScreenshotCaptureAdapter({
+      outcome: {
+        viewport: createTinyCapturedImage({ width: 1440, height: 900 }),
+        elementCrop: createTinyCapturedImage({ width: 100, height: 32 }),
+        failureReason: null,
+      },
+    });
     await repository.save(
       createReviewSession({
         id: 'session-1',
@@ -89,9 +110,9 @@ describe('overlay comment round-trip', () => {
     );
 
     const response = await handleReviewRequest(
-      makeContainer(repository, clock, ids, bus),
+      makeContainer(repository, clock, ids, bus, screenshots),
       commentCreateRequest(),
-      PAGE_URL,
+      SENDER,
     );
 
     expect(response).toEqual({ ok: true, commentId: 'comment-1' });
@@ -120,6 +141,32 @@ describe('overlay comment round-trip', () => {
         createdAt: '2026-09-18T10:05:00.000Z',
         updatedAt: '2026-09-18T10:05:00.000Z',
         anchorLabel: 'Save',
+        attachments: [
+          {
+            id: 'comment-3',
+            kind: 'viewport-screenshot',
+            mimeType: 'image/png',
+            width: 1440,
+            height: 900,
+            byteLength: TINY_PNG_BYTE_LENGTH,
+            dataUrl: TINY_PNG_DATA_URL,
+          },
+          {
+            id: 'comment-4',
+            kind: 'element-crop',
+            mimeType: 'image/png',
+            width: 100,
+            height: 32,
+            byteLength: TINY_PNG_BYTE_LENGTH,
+            dataUrl: TINY_PNG_DATA_URL,
+          },
+        ],
+        visualEvidence: {
+          confidence: 'confirmed',
+          viewport: 'captured',
+          elementCrop: 'captured',
+          reason: null,
+        },
       },
     ]);
 

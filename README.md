@@ -54,6 +54,18 @@ from persisted data after a page or panel reload. `Shift+Escape` (or **Exit revi
 leaves review mode, and no listener or overlay exists on the page while review mode is off.
 The focused tab URL is read through the `tabs` permission and never leaves the machine.
 
+Every saved note also carries local evidence: a curated DOM anchor (fingerprint, ancestry,
+visible text, role/name, allowlisted attributes, bounding box, viewport, computed styles) and
+two screenshots — the viewport and a crop of the pinned element. Form values are never read,
+and secret-like attributes (`password`, `token`, `secret`, authorization values…) are replaced
+before anything is persisted. The side panel previews both screenshots as numbered plates and
+either can be removed independently before handoff. The overlay hides itself while the capture
+runs so the screenshots show the page, not the review chrome; a capture failure leaves the note
+usable with an explicit "Screenshots unavailable" message. `chrome.tabs.captureVisibleTab`
+accepts only `<all_urls>` or a short-lived `activeTab` grant (which a page reload revokes), so
+the extension declares the `<all_urls>` host permission; screenshots still stay in the local
+browser profile.
+
 The module map, public interfaces and the dependency rule are documented in
 [`docs/architecture.md`](docs/architecture.md). The agent workflow (one implementation agent
 per issue, a distinct review agent, evidence in PRs) is documented in [`AGENTS.md`](AGENTS.md).

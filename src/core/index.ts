@@ -16,13 +16,16 @@ export {
 } from './model/invariants';
 
 export {
+  ATTACHMENT_KINDS,
   CONFIDENCE_LEVELS,
+  createAttachment,
   createDomEvidence,
   createEvidence,
   type Attachment,
   type AttachmentKind,
   type AttachmentStorage,
   type Confidence,
+  type CreateAttachmentInput,
   type CreateDomEvidenceInput,
   type CreateEvidenceInput,
   type DomAnchor,
@@ -33,7 +36,17 @@ export {
   type Rect,
   type SourceMapEvidence,
   type Viewport,
+  type VisualCaptureStatus,
+  type VisualEvidence,
 } from './model/evidence';
+
+export {
+  REDACTED_VALUE,
+  isSensitiveAttributeName,
+  redactAttributes,
+  redactUrlSecrets,
+  sanitizeDomAnchor,
+} from './model/redaction';
 
 export {
   COMMENT_CATEGORIES,
@@ -74,6 +87,12 @@ export type {
   StorageKind,
 } from './ports/review-session-repository';
 export type { RuntimeInfo, RuntimeInfoPort } from './ports/runtime-info';
+export type {
+  CapturedImage,
+  ScreenshotCaptureOutcome,
+  ScreenshotCapturePort,
+  ScreenshotCaptureRequest,
+} from './ports/screenshot-capture';
 
 export {
   clearReviewSession,
@@ -93,11 +112,15 @@ export {
 export {
   addReviewComment,
   deleteReviewComment,
+  deleteReviewCommentAttachment,
   updateReviewComment,
   type AddReviewCommentDeps,
   type AddReviewCommentInput,
   type AddReviewCommentResult,
   type CommentValidationFailure,
+  type DeleteReviewCommentAttachmentDeps,
+  type DeleteReviewCommentAttachmentInput,
+  type DeleteReviewCommentAttachmentResult,
   type DeleteReviewCommentDeps,
   type DeleteReviewCommentInput,
   type DeleteReviewCommentResult,
@@ -105,6 +128,13 @@ export {
   type UpdateReviewCommentInput,
   type UpdateReviewCommentResult,
 } from './usecases/review-comments';
+
+export {
+  captureCommentEvidence,
+  type CaptureCommentEvidenceDeps,
+  type CaptureCommentEvidenceInput,
+  type CaptureCommentEvidenceResult,
+} from './usecases/capture-comment-evidence';
 
 export {
   loadOverlayState,
@@ -118,9 +148,11 @@ export {
 export {
   loadReviewPanel,
   type ActivePageSummary,
+  type AttachmentSummary,
   type CommentSummary,
   type LoadReviewPanelDeps,
   type LoadReviewPanelInput,
   type ReviewPanelState,
   type SessionSummary,
+  type VisualEvidenceSummary,
 } from './usecases/load-review-panel';

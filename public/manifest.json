@@ -5,6 +5,7 @@
   "description": "Local-first UI review annotations with agent-ready handoff.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "tabs"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"

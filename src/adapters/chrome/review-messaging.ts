@@ -108,9 +108,15 @@ export function pushOverlaySyncToTabs(pageUrl: string): void {
     .catch(() => undefined);
 }
 
+/** Who sent a request: the page URL and tab when it came from a content script. */
+export interface ReviewRequestSender {
+  readonly url: string | null;
+  readonly tabId: number | null;
+}
+
 export type ReviewRequestHandler = (
   request: ReviewRequest,
-  senderUrl: string | null,
+  sender: ReviewRequestSender,
 ) => Promise<unknown>;
 
 /** Registers the service-worker side of the transport, answering only known requests. */
@@ -119,8 +125,11 @@ export function listenForReviewRequests(handler: ReviewRequestHandler): void {
     if (!isReviewRequest(message)) {
       return undefined;
     }
-    const senderUrl = sender.tab?.url ?? null;
-    void handler(message, senderUrl).then(sendResponse, () => {
+    const requestSender: ReviewRequestSender = {
+      url: sender.tab?.url ?? null,
+      tabId: sender.tab?.id ?? null,
+    };
+    void handler(message, requestSender).then(sendResponse, () => {
       sendResponse(null);
     });
     return true;

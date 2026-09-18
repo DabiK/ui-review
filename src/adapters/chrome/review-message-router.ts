@@ -1,12 +1,14 @@
 import type {
   AddReviewCommentInput,
   AddReviewCommentResult,
+  CaptureCommentEvidenceInput,
+  CaptureCommentEvidenceResult,
   OverlayState,
   SessionId,
   StopReviewSessionResult,
 } from '@core';
 import { isReviewRequest, REVIEW_MESSAGES, type CommentCreateResponse, type ReviewRequest } from './review-messages';
-import { listenForReviewRequests } from './review-messaging';
+import { listenForReviewRequests, type ReviewRequestSender } from './review-messaging';
 
 /**
  * Service-worker side of the review transport: translates validated transport requests into
@@ -17,6 +19,9 @@ import { listenForReviewRequests } from './review-messaging';
 export interface ReviewMessageContainer {
   loadOverlayState(pageUrl: string): Promise<OverlayState>;
   addReviewComment(input: AddReviewCommentInput): Promise<AddReviewCommentResult>;
+  captureCommentEvidence(
+    input: CaptureCommentEvidenceInput,
+  ): Promise<CaptureCommentEvidenceResult>;
   stopReviewSession(sessionId: SessionId): Promise<StopReviewSessionResult>;
   syncPageOverlay(pageUrl: string): void;
   notifyPanelChanged(): void;
@@ -31,14 +36,14 @@ export type ReviewMessageResponse =
 export async function handleReviewRequest(
   container: ReviewMessageContainer,
   request: ReviewRequest,
-  senderUrl: string | null,
+  sender: ReviewRequestSender,
 ): Promise<ReviewMessageResponse> {
   switch (request.type) {
     case REVIEW_MESSAGES.overlaySync:
-      return container.loadOverlayState(senderUrl ?? request.pageUrl);
+      return container.loadOverlayState(sender.url ?? request.pageUrl);
 
     case REVIEW_MESSAGES.commentCreate: {
-      if (senderUrl !== null && senderUrl !== request.pageUrl) {
+      if (sender.url !== null && sender.url !== request.pageUrl) {
         return { ok: false, message: 'This note does not match the page it was written on.' };
       }
 
@@ -56,13 +61,28 @@ export async function handleReviewRequest(
         return { ok: false, message: describeAddFailure(result) };
       }
 
+      // Visual evidence is captured right after the note exists; a capture failure is
+      // recorded on the comment, so the note itself always survives.
+      await container.captureCommentEvidence({
+        sessionId: request.sessionId,
+        commentId: result.comment.id,
+        capture:
+          sender.tabId === null
+            ? null
+            : {
+                tabId: sender.tabId,
+                rect: request.anchor.boundingBox,
+                viewport: request.viewport,
+              },
+      });
+
       container.syncPageOverlay(result.comment.pageUrl);
       container.notifyPanelChanged();
       return { ok: true, commentId: result.comment.id };
     }
 
     case REVIEW_MESSAGES.stopSession: {
-      if (senderUrl !== null && senderUrl !== request.pageUrl) {
+      if (sender.url !== null && sender.url !== request.pageUrl) {
         return { ok: true };
       }
 
@@ -81,11 +101,11 @@ export async function handleReviewRequest(
 
 /** Wires the pure router to `chrome.runtime.onMessage` for the MV3 service worker. */
 export function registerReviewMessageRouter(container: ReviewMessageContainer): void {
-  listenForReviewRequests((message, senderUrl) => {
+  listenForReviewRequests((message, sender) => {
     if (!isReviewRequest(message)) {
       return Promise.resolve(null);
     }
-    return handleReviewRequest(container, message, senderUrl);
+    return handleReviewRequest(container, message, sender);
   });
 }
 

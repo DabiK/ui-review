@@ -3,6 +3,7 @@ import {
   createReviewComment,
   createReviewSession,
   type AddReviewCommentResult,
+  type CaptureCommentEvidenceResult,
   type OverlayState,
   type StopReviewSessionResult,
 } from '@core';
@@ -16,8 +17,10 @@ import {
   type OverlaySyncRequest,
   type StopSessionRequest,
 } from '../../src/adapters/chrome/review-messages';
+import type { ReviewRequestSender } from '../../src/adapters/chrome/review-messaging';
 
 const PAGE_URL = 'https://example.com/pricing';
+const SENDER: ReviewRequestSender = { url: PAGE_URL, tabId: 7 };
 const EMPTY_OVERLAY: OverlayState = { active: false, sessionId: null, comments: [] };
 
 const createdComment = createReviewComment({
@@ -41,6 +44,9 @@ function makeContainer(overrides: Partial<ReviewMessageContainer> = {}): ReviewM
     loadOverlayState: vi.fn(async (): Promise<OverlayState> => EMPTY_OVERLAY),
     addReviewComment: vi.fn(
       async (): Promise<AddReviewCommentResult> => ({ ok: true, comment: createdComment }),
+    ),
+    captureCommentEvidence: vi.fn(
+      async (): Promise<CaptureCommentEvidenceResult> => ({ ok: true, comment: createdComment }),
     ),
     stopReviewSession: vi.fn(
       async (): Promise<StopReviewSessionResult> => ({ ok: true, session: stoppedSession }),
@@ -90,7 +96,7 @@ describe('handleReviewRequest', () => {
     );
     const container = makeContainer({ loadOverlayState });
 
-    const response = await handleReviewRequest(container, overlaySync(), PAGE_URL);
+    const response = await handleReviewRequest(container, overlaySync(), SENDER);
 
     expect(loadOverlayState).toHaveBeenCalledWith(PAGE_URL);
     expect(response).toEqual({ active: true, sessionId: 'session-1', comments: [] });
@@ -100,7 +106,7 @@ describe('handleReviewRequest', () => {
     const loadOverlayState = vi.fn(async (): Promise<OverlayState> => EMPTY_OVERLAY);
     const container = makeContainer({ loadOverlayState });
 
-    await handleReviewRequest(container, overlaySync('https://example.com/other'), PAGE_URL);
+    await handleReviewRequest(container, overlaySync('https://example.com/other'), SENDER);
 
     expect(loadOverlayState).toHaveBeenCalledWith(PAGE_URL);
   });
@@ -111,9 +117,17 @@ describe('handleReviewRequest', () => {
     );
     const syncPageOverlay = vi.fn();
     const notifyPanelChanged = vi.fn();
-    const container = makeContainer({ addReviewComment, syncPageOverlay, notifyPanelChanged });
+    const captureCommentEvidence = vi.fn(
+      async (): Promise<CaptureCommentEvidenceResult> => ({ ok: true, comment: createdComment }),
+    );
+    const container = makeContainer({
+      addReviewComment,
+      captureCommentEvidence,
+      syncPageOverlay,
+      notifyPanelChanged,
+    });
 
-    const response = await handleReviewRequest(container, commentCreate(), PAGE_URL);
+    const response = await handleReviewRequest(container, commentCreate(), SENDER);
 
     expect(addReviewComment).toHaveBeenCalledWith({
       sessionId: 'session-1',
@@ -123,6 +137,15 @@ describe('handleReviewRequest', () => {
       pageUrl: PAGE_URL,
       viewport: { width: 1440, height: 900 },
       anchor: commentCreate().anchor,
+    });
+    expect(captureCommentEvidence).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      commentId: 'comment-1',
+      capture: {
+        tabId: 7,
+        rect: { x: 10, y: 20, width: 100, height: 32 },
+        viewport: { width: 1440, height: 900 },
+      },
     });
     expect(syncPageOverlay).toHaveBeenCalledWith(PAGE_URL);
     expect(notifyPanelChanged).toHaveBeenCalledTimes(1);
@@ -135,11 +158,10 @@ describe('handleReviewRequest', () => {
     );
     const container = makeContainer({ addReviewComment });
 
-    const response = await handleReviewRequest(
-      container,
-      commentCreate(),
-      'https://other.example.com/',
-    );
+    const response = await handleReviewRequest(container, commentCreate(), {
+      url: 'https://other.example.com/',
+      tabId: 9,
+    });
 
     expect(addReviewComment).not.toHaveBeenCalled();
     expect(response).toEqual({
@@ -148,9 +170,25 @@ describe('handleReviewRequest', () => {
     });
   });
 
+  it('records an explicit capture failure when the sender has no tab context', async () => {
+    const captureCommentEvidence = vi.fn(
+      async (): Promise<CaptureCommentEvidenceResult> => ({ ok: true, comment: createdComment }),
+    );
+    const container = makeContainer({ captureCommentEvidence });
+
+    await handleReviewRequest(container, commentCreate(), { url: PAGE_URL, tabId: null });
+
+    expect(captureCommentEvidence).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      commentId: 'comment-1',
+      capture: null,
+    });
+  });
+
   it('reports an explicit message when the review is no longer active', async () => {
     const syncPageOverlay = vi.fn();
     const notifyPanelChanged = vi.fn();
+    const captureCommentEvidence = vi.fn();
     const container = makeContainer({
       addReviewComment: vi.fn(
         async (): Promise<AddReviewCommentResult> => ({
@@ -159,16 +197,18 @@ describe('handleReviewRequest', () => {
           sessionId: 'session-1',
         }),
       ),
+      captureCommentEvidence,
       syncPageOverlay,
       notifyPanelChanged,
     });
 
-    const response = await handleReviewRequest(container, commentCreate(), PAGE_URL);
+    const response = await handleReviewRequest(container, commentCreate(), SENDER);
 
     expect(response).toEqual({
       ok: false,
       message: 'This review is no longer running. Refresh the page and start a new review.',
     });
+    expect(captureCommentEvidence).not.toHaveBeenCalled();
     expect(syncPageOverlay).not.toHaveBeenCalled();
     expect(notifyPanelChanged).not.toHaveBeenCalled();
   });
@@ -193,7 +233,7 @@ describe('handleReviewRequest', () => {
     });
 
     const request: StopSessionRequest = { type: REVIEW_MESSAGES.stopSession, pageUrl: PAGE_URL };
-    const response = await handleReviewRequest(container, request, PAGE_URL);
+    const response = await handleReviewRequest(container, request, SENDER);
 
     expect(stopReviewSession).toHaveBeenCalledWith('session-1');
     expect(syncPageOverlay).toHaveBeenCalledWith(PAGE_URL);
@@ -206,7 +246,7 @@ describe('handleReviewRequest', () => {
     const container = makeContainer({ stopReviewSession });
     const request: StopSessionRequest = { type: REVIEW_MESSAGES.stopSession, pageUrl: PAGE_URL };
 
-    const response = await handleReviewRequest(container, request, PAGE_URL);
+    const response = await handleReviewRequest(container, request, SENDER);
 
     expect(stopReviewSession).not.toHaveBeenCalled();
     expect(response).toEqual({ ok: true });

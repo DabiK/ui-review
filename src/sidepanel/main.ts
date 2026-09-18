@@ -1,5 +1,6 @@
 import type {
   ClearReviewSessionResult,
+  DeleteReviewCommentAttachmentResult,
   DeleteReviewCommentResult,
   LoadReviewPanelInput,
   RenameReviewSessionResult,
@@ -30,6 +31,7 @@ let selectedSessionId: string | null = null;
 let pendingClearSessionId: string | null = null;
 let editingCommentId: string | null = null;
 let pendingDeleteCommentId: string | null = null;
+let pendingDeleteAttachmentId: string | null = null;
 let notice: string | null = null;
 
 type StartFailure = Extract<StartReviewSessionResult, { ok: false }>;
@@ -38,6 +40,7 @@ type RenameFailure = Extract<RenameReviewSessionResult, { ok: false }>;
 type ClearFailure = Extract<ClearReviewSessionResult, { ok: false }>;
 type UpdateCommentFailure = Extract<UpdateReviewCommentResult, { ok: false }>;
 type DeleteCommentFailure = Extract<DeleteReviewCommentResult, { ok: false }>;
+type DeleteAttachmentFailure = Extract<DeleteReviewCommentAttachmentResult, { ok: false }>;
 
 function describeStartFailure(failure: StartFailure): string {
   switch (failure.reason) {
@@ -97,11 +100,23 @@ function describeDeleteCommentFailure(failure: DeleteCommentFailure): string {
   }
 }
 
+function describeDeleteAttachmentFailure(failure: DeleteAttachmentFailure): string {
+  switch (failure.reason) {
+    case 'session-not-found':
+      return 'That session no longer exists.';
+    case 'comment-not-found':
+      return 'That note no longer exists.';
+    case 'attachment-not-found':
+      return 'That screenshot no longer exists.';
+  }
+}
+
 function viewOptions(): ReviewPanelViewOptions {
   return {
     pendingClearSessionId,
     editingCommentId,
     pendingDeleteCommentId,
+    pendingDeleteAttachmentId,
     notice,
     onRefresh: () => refreshPanel(),
     onStartReview: () => startReview(),
@@ -117,6 +132,10 @@ function viewOptions(): ReviewPanelViewOptions {
     onRequestDeleteComment: (commentId) => requestDeleteComment(commentId),
     onConfirmDeleteComment: (commentId) => confirmDeleteComment(commentId),
     onCancelDeleteComment: () => cancelDeleteComment(),
+    onRequestDeleteAttachment: (attachmentId) => requestDeleteAttachment(attachmentId),
+    onConfirmDeleteAttachment: (commentId, attachmentId) =>
+      confirmDeleteAttachment(commentId, attachmentId),
+    onCancelDeleteAttachment: () => cancelDeleteAttachment(),
   };
 }
 
@@ -131,6 +150,7 @@ function refreshPanel(): void {
   notice = null;
   pendingClearSessionId = null;
   pendingDeleteCommentId = null;
+  pendingDeleteAttachmentId = null;
   editingCommentId = null;
   void load();
 }
@@ -139,6 +159,7 @@ function selectSession(sessionId: string): void {
   selectedSessionId = sessionId;
   pendingClearSessionId = null;
   pendingDeleteCommentId = null;
+  pendingDeleteAttachmentId = null;
   editingCommentId = null;
   void load();
 }
@@ -146,6 +167,9 @@ function selectSession(sessionId: string): void {
 function requestClearSession(sessionId: string): void {
   selectedSessionId = sessionId;
   pendingClearSessionId = sessionId;
+  pendingDeleteCommentId = null;
+  pendingDeleteAttachmentId = null;
+  editingCommentId = null;
   render();
 }
 
@@ -157,6 +181,7 @@ function cancelClearSession(): void {
 function editComment(commentId: string): void {
   editingCommentId = commentId;
   pendingDeleteCommentId = null;
+  pendingDeleteAttachmentId = null;
   render();
 }
 
@@ -168,12 +193,41 @@ function cancelEditComment(): void {
 function requestDeleteComment(commentId: string): void {
   pendingDeleteCommentId = commentId;
   editingCommentId = null;
+  pendingDeleteAttachmentId = null;
   render();
 }
 
 function cancelDeleteComment(): void {
   pendingDeleteCommentId = null;
   render();
+}
+
+function requestDeleteAttachment(attachmentId: string): void {
+  pendingDeleteAttachmentId = attachmentId;
+  pendingDeleteCommentId = null;
+  editingCommentId = null;
+  render();
+}
+
+function cancelDeleteAttachment(): void {
+  pendingDeleteAttachmentId = null;
+  render();
+}
+
+function confirmDeleteAttachment(commentId: string, attachmentId: string): void {
+  const sessionId = selectedSessionId;
+  if (sessionId === null) {
+    return;
+  }
+  void runAction(async () => {
+    const result = await container.deleteReviewCommentAttachment({
+      sessionId,
+      commentId,
+      attachmentId,
+    });
+    pendingDeleteAttachmentId = null;
+    return result.ok ? null : describeDeleteAttachmentFailure(result);
+  });
 }
 
 async function runAction(action: () => Promise<string | null>): Promise<void> {
@@ -193,6 +247,9 @@ function startReview(): void {
     }
     selectedSessionId = result.session.id;
     pendingClearSessionId = null;
+    pendingDeleteCommentId = null;
+    pendingDeleteAttachmentId = null;
+    editingCommentId = null;
     container.syncPageOverlay(result.session.pageUrl);
     return null;
   });

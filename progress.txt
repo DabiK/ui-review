@@ -44,7 +44,7 @@ de vérité, le détail complet de chaque tâche y est.
 | 1 | Bootstrap clean architecture + agent workflow | DONE |
 | 2 | Session lifecycle in side panel | DONE |
 | 3 | Generic DOM click-to-pin review | DONE |
-| 4 | Evidence capture and privacy controls | TODO |
+| 4 | Evidence capture and privacy controls | DONE |
 | 5 | Native Messaging bridge and artifact store | TODO |
 | 6 | Copy agent brief and materialize handoff | TODO |
 | 7 | React/Next component context adapter | TODO |
@@ -280,3 +280,77 @@ Vérification navigateur réelle demandée par la review :
 Problèmes : aucun. Limite documentée : `--load-extension` étant ignoré par Chrome stable 153,
 le harnais passe par la commande CDP `Extensions.loadUnpacked` (même mécanisme que
 Playwright/Puppeteer récents).
+
+### Itération 4 — Issue #4 (preuves DOM/visuelles et protection des données sensibles)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 211 tests / 27 fichiers, build double).
+QA réelle Chrome 153 (macOS) avec l'extension chargée via CDP `Extensions.loadUnpacked` sur une
+fixture http locale : parcours complet vérifié.
+
+Livré :
+
+- Cœur : `src/core/model/redaction.ts` — porte de confidentialité appliquée par
+  `createEvidence()` à tout payload DOM : `value` et noms d'attributs secret-like
+  (`password`, `token`, `secret`, `auth`, `api-key`, `session-id`, `csrf`, `pin`…) remplacés
+  par `[redacted]`, credentials d'URL supprimés et paramètres de requête secret-like masqués.
+  Le pattern matche des tokens entiers (`author`, `spinner`, `aria-valuenow` intacts).
+- Cœur : `Attachment` a enfin sa factory `createAttachment()` (mime `image/*`, dimensions et
+  `byteLength` entiers positifs, storage validé) ; nouveau payload d'évidence `visual`
+  (statut par partie `captured`/`failed` + raison obligatoire dès qu'une capture manque) ;
+  `ATTACHMENT_KINDS`.
+- Cœur : port `ScreenshotCapturePort` (`capture(request)` → viewport + crop + raison d'échec,
+  jamais d'exception attendue) ; use case `captureCommentEvidence` (confiance `confirmed` /
+  `inferred` / `unavailable`, attachments + évidence liés au comment id, échec explicite si
+  pas de tab, port qui throw ou image invalide) ; use case
+  `deleteReviewCommentAttachment` ; `loadReviewPanel` expose `attachments` (dataUrl inline) et
+  `visualEvidence` par commentaire.
+- Adaptateurs : `ChromeScreenshotCaptureAdapter` (`chrome.tabs.captureVisibleTab` →
+  `createImageBitmap` → crop `OffscreenCanvas` avec mise à l'échelle CSS→pixels et clamp,
+  `computeCropRect` pur) et `FakeScreenshotCaptureAdapter` scriptable. Test de contrat
+  `ScreenshotCapturePort` exécuté sur les deux implémentations (succès, élément hors écran,
+  capture indisponible), plus tests géométrie/crop.
+- Contenu : `captureDomAnchor` remplit désormais `attributes` (allowlist structure/a11y/test,
+  jamais `value`) et `computedStyles` (display, position, typo, couleurs, bordures…), lit le
+  texte rendu (`innerText`) et ne lit jamais le contenu d'un `input`/`textarea`/`select`.
+- Contenu : l'overlay masque tout son chrome (`visibility: hidden`) et attend deux
+  `requestAnimationFrame` avant d'appeler la sauvegarde, puis se restaure — les captures
+  montrent la page, pas le composer (vérifié visuellement sur le PNG réel).
+- Transport : le routeur reçoit un `ReviewRequestSender` (`{ url, tabId }`) et déclenche
+  `captureCommentEvidence` après `addReviewComment` réussi, avec `capture: null` si le sender
+  n'a pas de tab ; un échec d'ajout ne capture rien.
+- Panneau : planches `Fig. 1 · Viewport` / `Fig. 2 · Element crop` avec alt text, image data
+  URL, suppression indépendante en deux étapes (`Remove viewport screenshot` /
+  `Remove element crop` → `Delete screenshot permanently` / `Keep screenshot`, focus déplacé),
+  et état d'échec explicite « Viewport screenshot unavailable — … » / « Screenshots
+  unavailable — … » (oxblood, rôle implicite) ; pas de statut quand tout est capturé.
+- Manifest : `host_permissions: ["<all_urls>"]`. Test manifest mis à jour ; docs
+  (`docs/architecture.md`, `README.md`) mises à jour.
+
+Décisions :
+
+- `chrome.tabs.captureVisibleTab` n'accepte que `<all_urls>` ou `activeTab` (vérifié par sonde
+  CDP dans Chrome 153 : les wildcards `http://*/*` + `https://*/*` échouent avec « Either the
+  '<all_urls>' or 'activeTab' permission is required »). `activeTab` étant révoqué au reload
+  alors qu'une session survit, `<all_urls>` est le seul choix qui tient l'AC « screenshot par
+  commentaire » après rechargement ; les content scripts restent limités à http(s).
+- Le crop est calculé par ratio `image.width / viewport.width` (gère dpr et zoom) plutôt qu'en
+  envoyant `devicePixelRatio` : moins de champs de transport, même résultat (crop réel vérifié
+  277×93 pour un bouton 138×46 CSS en dpr 2).
+- L'évidence `visual` est un historique de capture : supprimer une capture ne réécrit pas
+  l'évidence en échec (documenté) ; le panneau n'affiche un échec que quand la capture a
+  réellement échoué.
+- Redaction en profondeur : l'adaptateur de contenu limite déjà les attributs, le cœur
+  re-sanitize tout payload DOM — même un adaptateur fautif ne peut pas persister un secret.
+- Un port de capture qui throw est converti en échec explicite (le commentaire texte/DOM reste
+  utilisable) ; les erreurs de programmation non-domaine continuent de remonter.
+
+QA navigateur réelle (Chrome 153, CDP) : session démarrée depuis le panneau, overlay monté,
+clic réel sur le bouton → composer → sauvegarde ; deux planches dans le panneau, crop exact du
+bouton, screenshot viewport sans aucun chrome de review (composer/badge/pins/highlight absents,
+image inspectée) ; 2e note sur l'`input[type=password]` ; IndexedDB réel inspecté :
+`hunter2`, `tok_live_123` et la clé `"value"` absents, attributs DOM
+`{id, name, type, aria-label}`, évidences `dom:confirmed` + `visual:confirmed` ; Stop →
+overlay démonté et clic page de nouveau reçu. Harnais hors dépôt, supprimé après usage.
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de contrat
+(issue #12). Issue #4 fermée après ce commit.
