@@ -185,7 +185,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Treat protocol and filesystem validation as security-sensitive; review with an independent subagent.
   >
 
-- [ ] #6 — Copy an agent-ready review brief and materialize its artifacts (labels: area:ux, area:bridge, blocked)
+- [x] #6 — Copy an agent-ready review brief and materialize its artifacts (labels: area:ux, area:bridge, blocked)
 
   **Issue #6 — détail complet**
   > # 06 — Copy an agent-ready review brief and materialize its artifacts

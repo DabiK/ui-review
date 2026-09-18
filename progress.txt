@@ -46,7 +46,7 @@ de vérité, le détail complet de chaque tâche y est.
 | 3 | Generic DOM click-to-pin review | DONE |
 | 4 | Evidence capture and privacy controls | DONE |
 | 5 | Native Messaging bridge and artifact store | DONE |
-| 6 | Copy agent brief and materialize handoff | TODO |
+| 6 | Copy agent brief and materialize handoff | DONE |
 | 7 | React/Next component context adapter | TODO |
 | 8 | Resolve source maps to source context | TODO |
 | 9 | Vue/Nuxt component context adapter | TODO |
@@ -524,3 +524,71 @@ QA réelle :
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
 contrat (issue #12). Issue #5 fermée sur les commits f288550..0118d3e.
+
+### Itération 6 — Issue #6 (brief agent prêt à copier + matérialisation des artefacts)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 49 fichiers / 424 tests, build triple).
+QA réelle Chrome 153 (macOS), extension chargée via CDP `Extensions.loadUnpacked` avec l'hôte
+natif installé : session seedée dans IndexedDB, clic réel sur `Copy agent brief`, notice
+`Agent brief copied. Artifacts written to /tmp/ui-review-qa-handoff/qa-handoff-session`,
+`review.md` / `review.json` / capture vérifiés sur disque (schéma v1, comment id, chemin
+absolu de l'image), presse-papiers relu via `navigator.clipboard.readText` (le Markdown exact),
+second export sur le même dossier.
+
+Livré :
+
+- Cœur `src/core/handoff/review-brief.ts` (pur) : schéma versionné v1 de `review.json`
+  (session + commentaires indexés 1-based + évidences DOM/framework/source-map/visual avec
+  leur confiance + attachments avec `file`/`unavailableReason`), builder déterministe
+  (`buildReviewBrief`), rendu Markdown déterministe (`renderReviewBriefMarkdown`) avec contexte,
+  consignes agent (modifier uniquement les items listés, un résultat par comment ID, format de
+  réponse attendu) et chemins absolus des captures, parseur strict
+  (`parseReviewBriefDocument`) et validation croisée document/fichiers
+  (`validateReviewBriefBundle`) partagée avec le wire.
+- Protocole : 4e opération allowlistée `handoff.materialize` (`{ sessionId, brief, files[] }`) ;
+  validation complète côté bridge (schéma, appartenance à la session, allowlist image, base64
+  canonique, limites 100 fichiers / 16 MiB par fichier / 32 MiB au total, noms uniques sûrs,
+  correspondance exacte brief ↔ fichiers), nouveau code `unsupported-brief-version`.
+- Bridge : port `HandoffWriterPort` (`plan()` pur + `materialize()`) avec deux implémentations
+  réelles : `FileSystemHandoffWriter` (`<OS temp>/ui-review/handoff/<sessionId>/`, containment
+  et refus des symlinks, remplacement intégral du dossier, `review.md` écrit en dernier) et
+  `InMemoryHandoffWriter` ; `UI_REVIEW_BRIDGE_HANDOFF_ROOT` pour le dev/smoke ; contrat partagé
+  exécuté sur les deux.
+- Extension : `LocalBridgePort.materializeHandoff`, use case `materializeReviewHandoff`
+  (validation locale avant le wire), use case `exportReviewHandoff` (session absente ou vide
+  refusée, build, matérialisation, copie du Markdown exact renvoyé par le bridge, échecs typés,
+  session jamais modifiée) ; port `ClipboardPort` avec `NavigatorClipboardAdapter` +
+  `InMemoryClipboardAdapter` (contrat partagé) ; permission `clipboardWrite`.
+- UI : bloc `Agent handoff` dans la section 02, bouton `Copy agent brief` (désactivé et expliqué
+  quand la session n'a pas de note), notice de succès avec le dossier, messages d'échec
+  explicites (bridge indisponible, presse-papiers refusé) ; styles « Editorial margin notes ».
+- Docs : architecture (module map, schéma, opération, ports, use case, topologie, temp root,
+  stratégie de test, étapes d'installation), README (parcours handoff + sécurité bridge) ;
+  `npm run bridge:smoke` étendu à `handoff.materialize`.
+- Tests : `tests/core/review-brief.test.ts` (builder/rendu/parseur, attachements
+  non matérialisables), `tests/core/export-review-handoff.test.ts` (succès, ordre et unicité
+  après suppression, idempotence, session-not-found/no-comments, bridge indisponible et échec
+  presse-papiers sans perte), extensions de `bridge-protocol`, `local-bridge-usecases`,
+  `handle-request`, `local-bridge.contract`, contrat `HandoffWriterPort` (in-memory + fs, cas
+  symlink), `executable.test.ts` (handoff réel sur le binaire, racine temp contrôlée), UI.
+
+Décisions :
+
+- `review.md` est rendu par le bridge à partir du document validé : lui seul connaît les chemins
+  absolus réels ; le Markdown renvoyé est exactement celui écrit et copié. Un export réussi
+  garantit donc que chaque chemin d'image existe.
+- Le schéma du brief vit dans `src/core/handoff/` (domaine pur) et est importé par le cœur du
+  bridge ; `tests/architecture/bridge-boundaries.test.ts` a été étendu à ce seul module partagé,
+  avec un test de pureté dédié, plutôt que d'accepter n'importe quel import.
+- Un attachment non matérialisable (format non supporté, artefact hors profil, data URL
+  invalide) est reporté `file: null` + raison explicite, jamais un chemin pendouillant.
+- Le dossier de handoff est remplacé à chaque export (pas de copies qui s'accumulent) et
+  `review.md` est écrit en dernier.
+- `clipboardWrite` est nécessaire pour écrire sans geste utilisateur depuis le side panel ; le
+  presse-papiers reste derrière `ClipboardPort`, l'UI ne touche jamais `navigator.clipboard`.
+
+Problèmes : aucun. Note QA : avec un `--user-data-dir` temporaire, Chrome cherche les manifestes
+Native Messaging dans le profil ; le harnais a copié le manifeste installé dans
+`<profil>/NativeMessagingHosts/` (limite du harnais, pas du produit). Harnais jetable hors dépôt
+supprimé après usage, hôte désinstallé (`npm run bridge:uninstall`), racine de handoff QA
+supprimée. Issue #6 fermée sur les commits 055aaaf..f72191c.
