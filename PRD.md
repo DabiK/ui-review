@@ -284,7 +284,7 @@ l'UI ou le core. Détails dans `progress.txt`.
   > Verify that the implementation does not claim a component-file relationship when it only knows a bundle mapping.
   >
 
-- [ ] #9 — Add Vue and Nuxt component context adapter (labels: area:extension, area:adapters, blocked)
+- [x] #9 — Add Vue and Nuxt component context adapter (labels: area:extension, area:adapters, blocked)
 
   **Issue #9 — détail complet**
   > # 09 — Add Vue and Nuxt component context adapter

@@ -49,7 +49,7 @@ de vérité, le détail complet de chaque tâche y est.
 | 6 | Copy agent brief and materialize handoff | DONE |
 | 7 | React/Next component context adapter | DONE |
 | 8 | Resolve source maps to source context | DONE |
-| 9 | Vue/Nuxt component context adapter | TODO |
+| 9 | Vue/Nuxt component context adapter | DONE |
 | 10 | Package native bridge for macOS and Windows | TODO |
 | 11 | Validate the full review-to-agent experience | TODO |
 
@@ -750,3 +750,75 @@ QA réelle Chrome 153 (harnais CDP jetable hors dépôt, supprimé après usage)
 
 Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de
 contrat (issue #12). Issue #8 fermée sur les commits 9facd30..c4b39bc.
+
+### Itération 9 — Issue #9 (contexte de composant Vue/Nuxt)
+
+Statut : DONE. `npm run verify` vert (lint, typecheck, 552 tests / 58 fichiers, build triple).
+QA réelle Chrome (Playwright Chromium 1.63, harnais hors dépôt) avec le **vrai runtime Vue
+3.5.43** servi en local : 25/25 checks.
+
+Livré :
+
+- Adaptateur `src/adapters/frameworks/vue/vue-component-context.ts` : détecteur
+  `detectPageVueComponentContext(fingerprint)` auto-contenu (sérialisé par `executeScript`,
+  monde MAIN) qui lit les expandos Vue sans jamais importer Vue :
+  - Vue 3 : `__vueParentComponent` (instance du composant qui a rendu l'élément), chaîne via
+    `instance.parent`, nom via `type.__name`/`name`/`displayName`, référence source via
+    `type.__file` ;
+  - Vue 2 : `__vue__` sur l'élément racine d'un composant (validé par `$options`), nom via
+    `$options.name`/`displayName`/`_componentTag`, chaîne via `$parent`, source `$options.__file` ;
+  - repli production : `__vue_app__` sur un ancêtre DOM → composant racine (`_component`, puis
+    `_instance.type`) en `inferred`, jamais présenté comme le composant le plus proche ;
+  - repli Nuxt : `window.__NUXT__` → vue `inferred` sans nom (parité `__NEXT_DATA__`) ;
+  - bornes : 50 ancêtres DOM, 200 pas de chaîne, 8 composants, nom 120, fichier 512 ; jamais
+    d'exception (getters hostiles, chaînes cycliques, sélecteur invalide, élément absent).
+- Confiance (même politique que React) : `confirmed` seulement quand une métadonnée de dev est
+  directement observée (`__file`/`__hmrId`, ou `$options.__file` en Vue 2), `inferred` sinon
+  (noms de production, racine d'app, `__NUXT__`), `unavailable` quand rien n'est lisible.
+  Aucun nom minifié n'est présenté comme vérité source.
+- Transport : `ChromeComponentContextAdapter` injecte une liste de détecteurs (défaut
+  React + Vue, injectable) dans le monde MAIN, re-valide chaque résultat et conserve la
+  meilleure observation (`selectFrameworkObservation` : une détection bat un échec, `confirmed`
+  bat `inferred`, égalité → ordre des détecteurs). L'échec de transport d'un détecteur
+  n'enlève pas l'observation de l'autre.
+- Aucune modification du cœur ni du détecteur React : le vocabulaire `vue`, le label UI `Vue`
+  et le schéma de brief `vue` existaient déjà et sont maintenant réellement alimentés.
+- Tests : `tests/adapters/vue-component-context.test.ts` (20 tests), transport réécrit pour la
+  composition (sélection, injection, échecs isolés), cas Vue dans
+  `tests/ui/review-panel-view.test.ts` (detected + inferred) et
+  `tests/core/review-brief.test.ts` (schéma + Markdown).
+- Docs : `docs/architecture.md` (module map, port, monde MAIN, stratégie de test), `README.md`.
+
+Décisions :
+
+- La détection Vue 3 s'appuie sur `__vueParentComponent`, qui contient bien l'instance du
+  composant ayant rendu l'élément (vérifié dans le source Vue 3 : `def(el, '__vueParentComponent',
+  parentComponent, true)`), et non sur `__vnode.component` (toujours null sur un vnode d'élément).
+- En production sans expandos, seul le conteneur `__vue_app__` est disponible : l'adaptateur
+  rapporte le composant racine en `inferred` plutôt que d'inventer une relation
+  élément→composant ou de rester muet. C'est documenté comme best effort.
+- Les deux détecteurs tournent en parallèle, toujours à la demande après une note acceptée dans
+  une session active (aucune inspection avant `Start review`, modèle inchangé).
+- Référence `__file` sans ligne/colonne : `SourceReference` autorise `line`/`column` null et
+  `isDirectSourceReference` reconnaît `.vue` → évidence source-map `confirmed` sans requête.
+
+QA réelle (harnais Playwright jetable hors dépôt, supprimé après usage) :
+
+- `vue-dev.html` avec le vrai runtime Vue 3.5.43 (`vue.global.js`) et des options SFC-like
+  (`__file`) : clic réel → panneau `Vue context: detected — PricingCard` ; IndexedDB relu :
+  `framework: vue, confidence: confirmed, chain [App, PricingPage, PricingCard]` et source-map
+  `confirmed` sur `src/components/PricingCard.vue` sans requête.
+- `vue-prod.html` avec `vue.global.prod.js` (aucun expando élément, aucun `__file`) : repli
+  racine d'app → `Vue context: inferred — App (best effort)`, `framework: vue, inferred`.
+- `nuxt.html` (`window.__NUXT__`) → `Vue context: inferred (best effort)` sans nom.
+- `plain.html` → `Framework context: unavailable`.
+- Fixture React de #7 (fibers de dev) → toujours `React context: detected — PricingCard`,
+  aucune régression dans la composition.
+- Aucune erreur console page/panneau ; captures de contrôle prises puis supprimées avec le
+  harnais.
+
+Problèmes : aucun. Pré-existant (hors périmètre) : `RuntimeInfoPort` n'a pas de test de contrat
+(issue #12). Observation mineure hors périmètre (non corrigée, relève d'un ticket UI dédié) :
+quand une référence source n'a pas de ligne/colonne (cas normal d'un `__file` Vue), le panneau
+et le brief affichent la position de repli `:1:1` héritée de #8 ; c'est atteignable aussi côté
+React (`_debugSource` sans ligne). Issue #9 fermée sur les commits faacb63..a720a25.
