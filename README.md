@@ -219,7 +219,10 @@ names, symlink containment, and a full directory replacement on every export.
 
 Start a review, then click an element on the page to write a note. The panel puts notes
 first; expand **Evidence & context** to inspect screenshots and technical context.
+Choose **Pause review** to browse and use the page normally; the review and its notes remain
+saved. Return to the original page URL and choose **Resume review** to annotate again.
 **Session settings** contains rename and clear actions; **Stored sessions** opens history.
+Each saved session shows its full page URL as a safe link that opens in a new tab.
 **Copy agent brief** stays at the bottom of the panel and includes local evidence for the
 coding agent. Draft fields and keyboard focus survive background updates of the same review.
 

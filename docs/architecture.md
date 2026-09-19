@@ -63,7 +63,9 @@ specifier that leaves `src/core`.
 Vocabulary (`src/core/index.ts`):
 
 - `ReviewSession` — aggregate root: id, name, status (`active`/`stopped`), page URL,
-  hostname, timestamps and comments. Created via `createReviewSession()`.
+  hostname, timestamps and comments. An active session can retain `annotationPaused: true`:
+  it remains the same review but its page overlay is absent so normal navigation works.
+  Created via `createReviewSession()`.
 - `ReviewComment` — durable remark: id, session id, required non-blank text, category,
   priority, page URL, viewport, timestamps, evidence and attachments.
   Created via `createReviewComment()`; edited via `reviseReviewComment()`; defaults are
@@ -219,6 +221,9 @@ Use cases:
   non-http(s) pages and an already-active session for the page, then creates, names and
   persists one active session. Nothing is captured before this call.
 - `stopReviewSession({ sessionId })` — active → stopped transition, persisted.
+- `setReviewPaused({ sessionId, paused })` — persists a pause without ending the active
+  review. Resume checks the currently focused page is the exact page the session was created
+  for, then restores its overlay and pins.
 - `renameReviewSession({ sessionId, name })` — trims and persists a non-blank name.
 - `clearReviewSession({ sessionId })` — deletes exactly one session (its comments, evidence
   and attachments are embedded in the aggregate).

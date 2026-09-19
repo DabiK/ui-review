@@ -83,4 +83,26 @@ describe('session persistence across reloads', () => {
       name: 'example.com — 18 Sep 2026, 10:00',
     });
   });
+
+  it('treats an older persisted session without a pause field as annotation-ready', async () => {
+    const databaseName = 'ui-review-resume-legacy-pause';
+    const repository = new IndexedDbReviewSessionRepository({ databaseName });
+    const started = await startReviewSession({
+      sessions: repository,
+      pages: new StaticActivePageAdapter(PAGE),
+      clock: new FixedClockAdapter(STARTED_AT),
+      ids: new SequentialIdGeneratorAdapter('legacy'),
+    });
+    if (!started.ok) throw new Error('expected the review to start');
+    const { annotationPaused: _ignored, ...legacy } = started.session;
+    await repository.save(legacy);
+
+    const panel = await loadReviewPanel({
+      sessions: new IndexedDbReviewSessionRepository({ databaseName }),
+      pages: new StaticActivePageAdapter(PAGE),
+      runtimeInfo,
+    });
+
+    expect(panel.currentSession?.annotationPaused).toBe(false);
+  });
 });

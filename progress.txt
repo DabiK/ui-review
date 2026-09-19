@@ -838,6 +838,14 @@ React (`_debugSource` sans ligne). Issue #9 fermée sur les commits faacb63..a72
 - Separate handover debt remains: #13, #15, #16, #19, #25; #14 coverage is limited to the
   tested renderer continuity cases. Concurrent bridge/setup work was preserved.
 
+2026-09-19 — Pause and saved page context
+
+- Added durable review pause/resume: pausing removes the page overlay so normal navigation
+  works, while the same active session, notes and evidence remain stored. Resume checks the
+  original exact page URL before restoring annotation.
+- Stored session entries and the selected-review header now expose the complete saved URL as
+  a safe new-tab link. Existing sessions without the new pause field behave as unpaused.
+
 ### Itération 10 — Issue #10 (packaging et installation du bridge macOS / Windows)
 
 Statut : DONE. `npm run verify` vert (lint, typecheck, 62 fichiers / 584 tests, build triple).
