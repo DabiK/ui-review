@@ -313,7 +313,7 @@ function renderClearConfirmation(
 }
 
 /**
- * Local bridge setup — issue #10. A ready bridge is a quiet line; a missing or mismatched
+ * Local bridge setup. A ready bridge is a quiet line; a missing or mismatched
  * bridge becomes an actionable setup state (what to install, then "Check again") instead of
  * a raw transport error.
  */

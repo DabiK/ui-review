@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Packages the UI Review bridge as standalone executables (issue #10).
+ * Packages the UI Review bridge as standalone executables.
  *
  * A Node SEA (single executable application) is produced by embedding the CommonJS bridge
  * bundle (`dist/bridge/main.cjs`) into a Node runtime with postject. The resulting binary

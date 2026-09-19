@@ -9,7 +9,7 @@ const nodeBuiltins = [...builtinModules, ...builtinModules.map((name) => `node:$
 /**
  * Third build pass: the companion native bridge executable, emitted as a Node CommonJS bundle
  * in `dist/bridge/`. CommonJS is required because the packaged single executable (Node SEA,
- * issue #10) can only embed a CommonJS main; `scripts/package-bridge.mjs` turns this bundle
+ * packaging) can only embed a CommonJS main; `scripts/package-bridge.mjs` turns this bundle
  * into the standalone macOS and Windows artifacts. It only uses Node builtins, so those stay
  * external; Chrome launches it through a Native Messaging host manifest (installed by
  * `npm run bridge:install` or by the packaged installer).

@@ -7,7 +7,7 @@
  * manifest and registers it for Chrome. Installing outside the repository matters on macOS:
  * Chrome cannot execute files under a TCC-protected folder such as `~/Documents`.
  * `npm run bridge:uninstall` removes the registration and the installed launcher. Windows
- * packaging and standalone binaries are handled separately (issue #10); on Windows this
+ * packaging and standalone binaries are handled separately; on Windows this
  * script writes the manifest and prints the registry command instead of editing the registry.
  */
 import { createHash } from 'node:crypto';

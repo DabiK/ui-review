@@ -391,7 +391,7 @@ domain decision):
 
 - `dist/bridge/main.cjs` is a Node CommonJS bundle built from `src/bridge/main.ts`; Chrome
   launches it as a Native Messaging host (`stdio`), never through a server. CommonJS (not ESM)
-  is deliberate: Node's single-executable embedder only runs a CommonJS main, and issue #10
+  is deliberate: Node's single-executable embedder only runs a CommonJS main, and the bridge
   packages this bundle into standalone binaries. No HTTP listener, socket or port is ever
   created — `tests/architecture/bridge-boundaries.test.ts` rejects
   `node:http`/`node:https`/`node:net`/`createServer`/`.listen(` anywhere in `src/bridge`, and
@@ -403,7 +403,7 @@ domain decision):
 - Framing is the Native Messaging protocol: a 4-byte little-endian length prefix followed by
   UTF-8 JSON. Chrome's size limits apply: extension→host messages may reach 64 MiB, but
   host→extension messages are capped at 1 MiB. The bridge accepts artifacts up to 16 MiB
-  decoded; large artifacts are meant to be handed to the agent by local path (issue #6),
+  decoded; large artifacts are meant to be handed to the agent by local path,
   not read back through a 1 MiB response.
 - Trust chain: (1) the host manifest's `allowed_origins` restricts which extension may launch
   the host; (2) the installer's launcher exports `UI_REVIEW_BRIDGE_ALLOWED_ORIGINS`, and the
@@ -436,7 +436,7 @@ domain decision):
   while leaving persisted sessions intact. `npm run bridge:smoke` spawns the built bundle (or
   the artifact passed through `-- --binary <path>`) and round-trips health, write, read and
   handoff frames.
-- Packaged installation (issue #10): `npm run bridge:package` turns `dist/bridge/main.cjs`
+- Packaged installation: `npm run bridge:package` turns `dist/bridge/main.cjs`
   into standalone executables — a Node SEA blob generated with `--experimental-sea-config`,
   injected with postject (`NODE_SEA_BLOB`, `NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
   `NODE_SEA` Mach-O segment) into a Node runtime, then ad-hoc signed on macOS. Targets are

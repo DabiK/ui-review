@@ -5,8 +5,8 @@ This file is mandatory reading for any agent (human or AI) working on this repos
 ## Mission
 
 UI Review is a local-first Chrome extension that lets a reviewer annotate any page and hand a
-complete, evidence-backed brief to a local coding agent. `PRD.md` lists the issues and their
-acceptance criteria; `progress.txt` records what is done and what is blocked.
+complete, evidence-backed brief to a local coding agent. `README.md` describes the product and
+`docs/architecture.md` records the technical boundaries.
 
 ## Non-negotiable architecture
 
@@ -23,16 +23,16 @@ Clean/hexagonal architecture, extension **and** native bridge. Read
 These rules are enforced by `npm run lint` and `tests/architecture/core-boundaries.test.ts`.
 Breaking them is a failed change, not a style nit.
 
-## Required workflow for every issue
+## Required workflow for every focused change
 
-1. **One implementation agent per issue and per worktree.** Read the issue, explore the
-   affected modules, then implement only that issue. Never bundle another issue's work.
+1. **One implementation agent per focused change and per worktree.** Explore the affected
+   modules, then implement only that change. Never bundle unrelated work.
 2. **Run the full check suite**: `npm install` then `npm run verify`
    (lint → typecheck → unit tests → build).
-3. **No unrelated refactors.** If you spot an unrelated bug, report it in `progress.txt`
-   instead of fixing it in the same change.
-4. **Provide evidence in the PR** using `.github/pull_request_template.md`: commands run with
-   their results, and how each acceptance criterion was verified.
+3. **No unrelated refactors.** Record any follow-up separately instead of fixing it in the
+   same change.
+4. **Provide evidence in the PR description**: commands run with their results, and how each
+   acceptance criterion was verified.
 5. **A distinct review agent must review the change before it is considered complete.** The
    review agent is never the implementation agent, and it reviews the diff plus the evidence —
    not a summary written by the implementer.
@@ -42,7 +42,7 @@ Breaking them is a failed change, not a style nit.
 
 ## Review agent checklist
 
-- Does the change satisfy every acceptance criterion of the issue?
+- Does the change satisfy its stated acceptance criteria?
 - Does the dependency rule hold? Any `chrome.*`, DOM, storage or adapter access from the core
   or the UI is a rejection.
 - Do new ports have at least two real implementations and contract tests?
@@ -51,11 +51,11 @@ Breaking them is a failed change, not a style nit.
 - Do tests exercise public interfaces at the same seam as real callers?
 - Is the UI consistent with the "Editorial margin notes" direction
   (`docs/design/DESIGN.md`), in English, keyboard-accessible with visible focus?
-- Is the diff scoped to the issue, with no unrelated refactors?
+- Is the diff scoped to the change, with no unrelated refactors?
 
 ## UI direction
 
-All UI tickets follow the validated lead in `docs/design/DESIGN.md` and
+All UI changes follow the validated lead in `docs/design/DESIGN.md` and
 `docs/design/sidebar-b-editorial.png`: paper background, fine rules, numbered indexes,
 serif/sans/mono typography, no dashboard look. UI text is in English; code, comments and docs
 are in English too.

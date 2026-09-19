@@ -5,8 +5,8 @@
 Implemented the design handover: a notes-first panel with compact page controls, clear
 first-use guidance, native disclosures for evidence/settings/history, and a persistent
 agent handoff. Overlay typography, contrast, controls and viewport containment match.
-The production renderer also accommodates the bridge setup controls added by concurrent
-issue #10 work; that bridge implementation is not part of this redesign.
+The production renderer also accommodates bridge setup controls; that bridge implementation
+is not part of this redesign.
 
 No core, native bridge, transport or persistence changes were made by the redesign agent.
 
@@ -59,7 +59,5 @@ not manually repeated in this redesign; their existing automated tests passed.
 
 ## Remaining scope
 
-The handover's separate issues concerning rapid Start clicks (#13), raw errors (#15),
-outside-click draft handling (#16), hidden-tab capture (#19), and cold-cache timing (#25)
-were not fixed here. This change covers the renderer continuity cases tested above; it does
-not claim a repository-wide closure of #14. Full extension E2E remains issue #11.
+This evidence is limited to renderer continuity cases and their tests. It does not claim
+repository-wide end-to-end validation.
