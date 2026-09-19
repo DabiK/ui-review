@@ -14,7 +14,7 @@ The previous direction is retained in `sidebar-b-editorial.png` for historical r
 - A compact masthead identifies the tool and local persistence.
 - The current page and annotation status stay together; Stop is a secondary action.
 - Pause review disables interception while keeping the active session intact, so navigation
-  and ordinary page controls work. Resume is available only on the original saved URL.
+  and ordinary page controls work. Resume succeeds only on the original saved URL.
 - The selected review is named explicitly, including when it differs from the current tab.
 - Notes are the main content. Numbers match page pins; text is readable sans serif.
 - Each note exposes its anchor and actions. Evidence and technical context use native
