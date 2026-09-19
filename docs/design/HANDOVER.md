@@ -1,4 +1,4 @@
-# Visual redesign handover — UI Review
+# Historical visual redesign handover — UI Review
 
 Brief for the agent doing the visual refonte of the extension UI. The functional scope is
 already implemented and tested; this is a **design change**, not a feature change.
@@ -14,8 +14,8 @@ directory for a coding agent. Nothing leaves the machine.
 
 ## Current state (September 2026)
 
-- 9 of 11 MVP tickets are implemented, tested and approved (#1–#9). #10 (bridge packaging)
-  and #11 (end-to-end validation) are pending; the autonomous loop is paused for the refonte.
+- Tickets #1–#10 are implemented. #11 (full end-to-end validation) remains pending. This
+  handover is retained as historical design context; see `DESIGN.md` for the current direction.
 - The UI is currently implemented as **plain DOM** (no UI framework) and follows the design
   lead `docs/design/DESIGN.md` + reference image `docs/design/sidebar-b-editorial.png`
   ("Editorial margin notes"). Explorations kept for reference:

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#182720" />
+    <meta
+      name="description"
+      content="UI Review turns what you see on a page into a clear, evidence-backed brief for your coding agent."
+    />
+    <title>UI Review — See it. Pin it. Ship it.</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="showcase.css" />
+  </head>
+  <body>
+    <main>
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <nav class="nav" aria-label="Main navigation">
+          <a class="brand" href="#top" aria-label="UI Review home">UI<span>·</span>REVIEW</a>
+          <a class="nav__link" href="https://github.com/DabiK/ui-review">View source <span>↗</span></a>
+        </nav>
+
+        <div class="hero__copy" id="top">
+          <p class="eyebrow"><span></span> Local-first Chrome extension</p>
+          <h1 id="hero-title">See the flaw.<br /><em>Give the fix.</em></h1>
+          <p class="hero__lede">
+            UI Review turns a real page into a precise brief your coding agent can act on —
+            with pins, screenshots and the context behind every note.
+          </p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="#the-flow">Watch the flow <span>↓</span></a>
+            <a class="button button--quiet" href="#install">Install locally</a>
+          </div>
+        </div>
+
+        <div class="hero__scene" aria-label="UI Review side panel in use">
+          <div class="scene__caption"><span>01</span> Notes, not noise</div>
+          <div class="browser browser--hero">
+            <div class="browser__bar"><i></i><i></i><i></i><b>pricing.example</b></div>
+            <div class="browser__page">
+              <p class="page-kicker">ACME / PLANS</p>
+              <h2>A little more room<br />to create.</h2>
+              <span class="browser__cta">Start free trial</span>
+            </div>
+            <img
+              class="browser__panel"
+              src="design/evidence/after-active.png"
+              alt="UI Review with numbered notes and the Copy agent brief action"
+              width="390"
+              height="844"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section class="manifesto" aria-label="Product principles">
+        <div class="wrap manifesto__grid">
+          <p class="eyebrow"><span></span> Made for the moment before a build</p>
+          <p class="manifesto__statement">
+            Stop translating your eyes into vague tickets. <em>Point to the thing.</em>
+            Keep the proof. Hand over the work.
+          </p>
+          <ul class="manifesto__facts">
+            <li><b>01</b> Review material stays on your machine</li>
+            <li><b>02</b> Every note keeps its evidence</li>
+            <li><b>03</b> One brief, ready for an agent</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="flow wrap" id="the-flow" aria-labelledby="flow-title">
+        <header class="section-heading">
+          <p class="eyebrow"><span></span> The review flow</p>
+          <h2 id="flow-title">Three gestures.<br /><em>One useful handoff.</em></h2>
+        </header>
+
+        <ol class="steps">
+          <li class="step step--first">
+            <div class="step__number">01</div>
+            <div class="step__body">
+              <h3>Start where you are</h3>
+              <p>Open the side panel on any HTTP(S) page. The review starts only when you say so.</p>
+            </div>
+            <div class="step__frame step__frame--panel">
+              <img src="design/evidence/after-empty.png" alt="The UI Review first-use screen" width="390" height="844" />
+            </div>
+          </li>
+          <li class="step step--second">
+            <div class="step__number">02</div>
+            <div class="step__body">
+              <h3>Point at what matters</h3>
+              <p>Hover, click, describe the change. UI Review pins the element and captures visual context.</p>
+            </div>
+            <div class="step__frame step__frame--overlay">
+              <img src="design/evidence/after-overlay-composer.png" alt="Writing a pinned UI Review note directly over a web page" width="1000" height="740" />
+            </div>
+          </li>
+          <li class="step step--third">
+            <div class="step__number">03</div>
+            <div class="step__body">
+              <h3>Hand it to your agent</h3>
+              <p>Copy one clear brief with the notes, DOM context and local screenshot paths already attached.</p>
+            </div>
+            <div class="brief-card" aria-label="Example agent brief structure">
+              <div class="brief-card__top"><span>review.md</span><span>LOCAL ONLY</span></div>
+              <p><b># Pricing page review</b></p>
+              <p><span>01 · UI · P1</span><br />Make the primary action easier to find.</p>
+              <p><span>Evidence</span><br />Viewport · Element crop · React context</p>
+              <div class="brief-card__cursor">_</div>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="proof wrap" aria-labelledby="proof-title">
+        <div class="proof__lead">
+          <p class="eyebrow"><span></span> Context without the creep</p>
+          <h2 id="proof-title">Evidence you can<br /><em>actually trust.</em></h2>
+          <p>
+            Screenshots are visible before export. Framework and source-map signals say
+            whether they are detected, inferred or unavailable. There is no pretend certainty.
+          </p>
+        </div>
+        <div class="proof__image">
+          <img src="design/evidence/after-evidence.png" alt="Expanded UI Review evidence and context section" width="390" height="844" />
+          <p class="proof__note"><span>Field note</span> Evidence stays tucked away until you need it.</p>
+        </div>
+      </section>
+
+      <section class="install" id="install" aria-labelledby="install-title">
+        <div class="wrap install__grid">
+          <div>
+            <p class="eyebrow"><span></span> Early access / local setup</p>
+            <h2 id="install-title">Bring a better<br /><em>brief to the build.</em></h2>
+          </div>
+          <div class="install__body">
+            <p>
+              UI Review is a local-first Chrome extension. Build it, load it, and keep your
+              review material on your machine.
+            </p>
+            <pre><code>npm install
+npm run build</code></pre>
+            <p class="install__small">Then open <b>chrome://extensions</b> → Developer mode → Load unpacked → <b>dist/</b>. To copy agent briefs, install the local Native Messaging bridge too — <a href="https://github.com/DabiK/ui-review?tab=readme-ov-file#local-bridge-native-messaging">bridge setup</a>.</p>
+            <p class="install__small">Reviews, screenshots and handoffs stay local. Optional framework source-map lookup only requests public assets and discards fetched source.</p>
+            <a class="button button--light" href="https://github.com/DabiK/ui-review">Get UI Review <span>↗</span></a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer wrap">
+      <a class="brand" href="#top">UI<span>·</span>REVIEW</a>
+      <p>Local-first UI feedback for the people making the next version.</p>
+      <a href="https://github.com/DabiK/ui-review">GitHub <span>↗</span></a>
+    </footer>
+  </body>
+</html>

@@ -2,6 +2,28 @@
 
 Une extension Chrome locale pour faire une review d'interface directement sur une page : survoler, cliquer, poser une pin, écrire une remarque, puis copier un brief exploitable par un agent de code.
 
+> **[See the product in use →](docs/index.html)**
+
+<p align="center">
+  <img src="docs/design/evidence/after-active.png" width="310" alt="UI Review side panel with evidence-backed notes" />
+  &nbsp;&nbsp;
+  <img src="docs/design/evidence/after-overlay-composer.png" width="500" alt="Writing a UI Review note over a page" />
+</p>
+
+**See it. Pin it. Give the fix.** UI Review turns what you see on a web page into a clear,
+evidence-backed local brief for your coding agent.
+
+- **Local by design** — reviews, screenshots and handoff files remain on your machine.
+- **Specific by default** — each note is tied to an element, screenshots and honest technical context.
+- **Ready to hand off** — one action writes `review.md`, `review.json` and local image paths.
+
+The styled product page lives in [`docs/index.html`](docs/index.html). It is ready to publish
+through GitHub Pages when the repository becomes public.
+
+> Privacy note: reviews, screenshots and handoff files stay local. When a saved note includes
+> a published framework source reference, UI Review can request that page's public JavaScript
+> source map to resolve it; the fetched source is discarded and is never stored or exported.
+
 ## Principes non négociables
 
 - **Zéro friction de review** : un mode explicite, `hover → click → comment`, des pins persistantes et un panneau latéral clair.
